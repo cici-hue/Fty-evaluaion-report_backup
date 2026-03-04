@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+# 可选：如果仍有依赖问题，先注释 plotly 相关导入
+# import plotly.express as px
+# import plotly.graph_objects as go
 from datetime import datetime, date
 import json
 import os
@@ -388,8 +389,8 @@ def render_dashboard():
         st.metric("📅 本月评估", len(month_evaluations))
     
     # 平均分
-    completed_evaluations = [e for e in evaluations if e['status'] == '已完成' and e['total_score'] > 0]
-    avg_score = sum(e['total_score'] for e in completed_evaluations) / len(completed_evaluations) if completed_evaluations else 0
+    completed_evaluations = [e for e in evaluations if e['status'] != '进行中' and e['total_score'] > 0]
+    avg_score = sum(e['current_score'] for e in completed_evaluations) / len(completed_evaluations) if completed_evaluations else 0
     with col3:
         st.metric("📊 平均得分", f"{avg_score:.1f}分")
     
@@ -439,6 +440,7 @@ def render_dashboard():
         styled_df = df.style.applymap(highlight_status, subset=['状态'])
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
     else:
+        # 修复：内层用单引号，外层用双引号
         st.info("暂无评估记录，点击'开始评估'创建新评估")
 
 # ==================== 开始评估 ====================
@@ -474,7 +476,7 @@ def render_evaluation_create():
         if not selected_modules:
             st.error("请至少选择一个评估模块！")
         else:
-            # 计算总分
+            # 计算总分和重点项总分
             total_score = 0
             key_score = 0
             for module in selected_modules:
@@ -620,23 +622,23 @@ def render_evaluation_detail():
         if st.button("💾 保存进度", use_container_width=True):
             # 收集所有评分
             all_scores = {}
+            current_score = 0
+            current_key_score = 0
+            
             for module_name in evaluation['modules']:
                 for item in data_store.modules[module_name]['items']:
                     item_id = item['id']
                     if f"score_{item_id}" in st.session_state:
-                        all_scores[item_id] = st.session_state[f"score_{item_id}"]
-            
-            # 计算当前得分
-            current_score = sum(s['score'] for s in all_scores.values())
-            current_key_score = sum(
-                s['score'] for s in all_scores.values()
-                if data_store.modules[[m for m in evaluation['modules'] 
-                    if any(i['id'] == s.split('_')[1] for i in data_store.modules[m]['items'])][0]]['items'][0]['type'] == '重点'
-            ) if all_scores else 0
+                        score_data = st.session_state[f"score_{item_id}"]
+                        all_scores[item_id] = score_data
+                        current_score += score_data['score']
+                        if item['type'] == '重点':
+                            current_key_score += score_data['score']
             
             # 更新评估
             data_store.update_evaluation(evaluation['id'], {
-                'current_score': current_score
+                'current_score': current_score,
+                'current_key_score': current_key_score
             })
             
             # 保存评分明细
@@ -652,13 +654,18 @@ def render_evaluation_detail():
         if st.button("✅ 提交评估", type="primary", use_container_width=True):
             # 计算得分
             all_scores = {}
+            current_score = 0
+            current_key_score = 0
+            
             for module_name in evaluation['modules']:
                 for item in data_store.modules[module_name]['items']:
                     item_id = item['id']
                     if f"score_{item_id}" in st.session_state:
-                        all_scores[item_id] = st.session_state[f"score_{item_id}"]
-            
-            current_score = sum(s['score'] for s in all_scores.values())
+                        score_data = st.session_state[f"score_{item_id}"]
+                        all_scores[item_id] = score_data
+                        current_score += score_data['score']
+                        if item['type'] == '重点':
+                            current_key_score += score_data['score']
             
             # 计算合格率
             pass_rate = (current_score / evaluation['total_score']) * 100 if evaluation['total_score'] > 0 else 0
@@ -674,6 +681,7 @@ def render_evaluation_detail():
             # 更新评估
             data_store.update_evaluation(evaluation['id'], {
                 'current_score': current_score,
+                'current_key_score': current_key_score,
                 'status': status
             })
             
@@ -722,7 +730,7 @@ def render_history():
         selected_status = st.selectbox("状态", options=statuses)
     
     # 查询
-    factory_id = factories[selected_factory]
+    factory_id = selected_factory if selected_factory != "全部" else None
     if selected_status == "全部":
         status = None
     else:
@@ -771,7 +779,7 @@ def render_history():
     else:
         st.info("暂无符合条件的评估记录")
 
-# ==================== 对比分析 ====================
+# ==================== 对比分析（简化版，移除plotly依赖） ====================
 def render_compare():
     """对比分析"""
     st.title("📊 对比分析")
@@ -802,52 +810,20 @@ def render_compare():
         factory_evaluations = factories[selected_factory]
         
         if len(factory_evaluations) >= 2:
-            # 时间趋势图
-            st.subheader(f"📈 {selected_factory} 评估得分趋势")
-            
-            df_data = []
-            for ev in sorted(factory_evaluations, key=lambda x: x['date']):
-                df_data.append({
-                    "日期": ev['date'],
-                    "得分": ev['current_score'],
-                    "总分": ev['total_score'],
-                    "状态": ev['status']
-                })
-            
-            df = pd.DataFrame(df_data)
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=df['日期'],
-                y=df['得分'],
-                mode='lines+markers',
-                name='得分',
-                line=dict(color='#2196F3', width=3)
-            ))
-            
-            fig.update_layout(
-                title="评估得分趋势",
-                xaxis_title="日期",
-                yaxis_title="得分",
-                height=400,
-                hovermode='x unified'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # 详细对比表
-            st.subheader("📊 详细对比")
+            # 详细对比表（移除plotly图表，仅保留表格）
+            st.subheader(f"📈 {selected_factory} 评估得分对比")
             
             comparison_data = []
             for i, ev in enumerate(sorted(factory_evaluations, key=lambda x: x['date'])[-5:]):
                 factory = next((f for f in data_store.factories if f['id'] == ev['factory_id']), None)
+                pass_rate = (ev['current_score']/ev['total_score']*100) if ev['total_score'] > 0 else 0
                 comparison_data.append({
                     "评估日期": ev['date'],
                     "工厂名称": factory['name'] if factory else '未知',
                     "评估模块": ev['modules_str'],
                     "得分": ev['current_score'],
                     "总分": ev['total_score'],
-                    "合格率": f"{(ev['current_score']/ev['total_score']*100):.1f}%",
+                    "合格率": f"{pass_rate:.1f}%",
                     "状态": ev['status']
                 })
             
