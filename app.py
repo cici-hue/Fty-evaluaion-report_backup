@@ -28,7 +28,7 @@ class DataStore:
         self.factories = [{"id": 1, "name": "深圳XX服装厂"}, {"id": 2, "name": "广州XX制衣厂"}]
         self.modules = self._init_modules()
         self.evaluations = self._load_evaluations()
-        self.total_system_score = 177
+        self.total_system_score = 177  # 总分177
 
     def _init_modules(self):
         """核心评估项，仅在内部保留score用于计算，界面不显示"""
@@ -39,19 +39,19 @@ class DataStore:
                     "纸样开发标准": {
                         "total_score": 6,
                         "items": [
-                            {"id": "p1_1", "name": "使用CAD软件制作/修改纸样", "score": 1, "details": [], "comment": ""},
-                            {"id": "p1_2", "name": "缝份清晰标记应合规", "score": 1, "details": [], "comment": ""},
-                            {"id": "p1_3", "name": "布纹线，剪口标注合规并清晰", "score": 1, "details": [], "comment": ""},
-                            {"id": "p1_4", "name": "放码标准（尺寸增量）遵守客户要求，并文档化", "score": 1, "details": [], "comment": ""},
-                            {"id": "p1_5", "name": "技术包（Tech Pack）应明确标注尺寸表、工艺说明与特殊工艺说明", "score": 3, "details": [], "comment": ""},
+                            {"id": "p1_1", "name": "使用CAD软件制作/修改纸样", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "p1_2", "name": "缝份清晰标记应合规", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "p1_3", "name": "布纹线，剪口标注合规并清晰", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "p1_4", "name": "放码标准（尺寸增量）遵守客户要求，并文档化", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "p1_5", "name": "技术包（Tech Pack）应明确标注尺寸表、工艺说明与特殊工艺说明", "score": 3, "is_key": True, "details": [], "comment": ""},
                         ]
                     },
                     "版本控制与追溯性": {
                         "total_score": 3,
                         "items": [
-                            {"id": "p2_1", "name": "纸样版本控制系统（确保最新、准确、可追溯）", "score": 1, "details": [], "comment": ""},
-                            {"id": "p2_2", "name": "文档记录：纸样历史、修订、批准", "score": 1, "details": [], "comment": ""},
-                            {"id": "p2_3", "name": "物理纸样及数字备份的安全存储", "score": 1, "details": [], "comment": ""},
+                            {"id": "p2_1", "name": "纸样版本控制系统（确保最新、准确、可追溯）", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "p2_2", "name": "文档记录：纸样历史、修订、批准", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "p2_3", "name": "物理纸样及数字备份的安全存储", "score": 1, "is_key": False, "details": [], "comment": ""},
                         ]
                     }
                 }
@@ -66,6 +66,7 @@ class DataStore:
                                 "id": "m1_1",
                                 "name": "合格/不合格品/待检标识应明确，分开堆放",
                                 "score": 1,
+                                "is_key": False,
                                 "details": ["标识不明确", "未分开堆放"],
                                 "comment": ""
                             },
@@ -73,6 +74,7 @@ class DataStore:
                                 "id": "m1_2",
                                 "name": "面料不可“井”字堆放，高度不可过高（建议<1.5m）",
                                 "score": 1,
+                                "is_key": False,
                                 "details": ["面料井字堆放", "堆放高度过高"],
                                 "comment": ""
                             },
@@ -80,6 +82,7 @@ class DataStore:
                                 "id": "m1_3",
                                 "name": "不同颜色及批次（缸号）分开堆放",
                                 "score": 1,
+                                "is_key": False,
                                 "details": [],
                                 "comment": ""
                             },
@@ -87,6 +90,7 @@ class DataStore:
                                 "id": "m1_4",
                                 "name": "托盘存放不靠墙、不靠窗、避光储存及防潮防霉",
                                 "score": 1,
+                                "is_key": False,
                                 "details": ["靠墙", "靠窗", "未避光储存", "未防潮防霉"],
                                 "comment": ""
                             },
@@ -94,6 +98,7 @@ class DataStore:
                                 "id": "m1_5",
                                 "name": "温湿度计及记录（湿度<65%）",
                                 "score": 1,
+                                "is_key": False,
                                 "details": ["无温湿度计", "无记录", "湿度超标"],
                                 "comment": "监控湿度的变化，便于采取相应的解决方案（如抽湿）"
                             },
@@ -106,6 +111,7 @@ class DataStore:
                                 "id": "m2_1",
                                 "name": "面料厂验布记录/测试记录/缸差布",
                                 "score": 1,
+                                "is_key": False,
                                 "details": ["无验布记录", "无测试记录", "无缸差布"],
                                 "comment": "测试记录和缸差布可预防面料品质问题和色差问题"
                             },
@@ -113,6 +119,7 @@ class DataStore:
                                 "id": "m2_2",
                                 "name": "入库单（卷数，米数，克重等）",
                                 "score": 1,
+                                "is_key": False,
                                 "details": ["无入库单", "信息不全"],
                                 "comment": ""
                             },
@@ -246,33 +253,35 @@ def start_evaluation():
     # 4. 评分详情（核心UI）
     st.subheader("评分详情")
     total_earned = 0
-    total_possible = 0
 
     for mod_name in selected_modules:
         mod = db.modules[mod_name]
-        # 大项Expander：显示大项完成率
+        # 大项Expander
         mod_earned = 0
-        mod_possible = mod['total_score']
         
         with st.expander(f"📦 {mod_name}", expanded=True):
             for sub_name, sub_mod in mod['sub_modules'].items():
-                # 小项标题：显示小项实时完成率
+                # 小项标题：计算小项得分/总分177的百分比，移除"完成率"文字
                 sub_earned = sum(
                     item['score'] for item in sub_mod['items']
                     if st.session_state.eval_results[item['id']]['is_checked']
                 )
-                sub_possible = sub_mod['total_score']
-                sub_percent = (sub_earned / sub_possible * 100) if sub_possible > 0 else 0
-                
-                st.markdown(f"### {sub_name} (完成率：{sub_percent:.1f}%)")
+                # 关键修改1：百分比 = 小项得分 / 总分177 * 100，移除"完成率"文字
+                sub_percent = (sub_earned / db.total_system_score * 100) if db.total_system_score > 0 else 0
+                st.markdown(f"### {sub_name} ({sub_percent:.2f}%)")
                 st.divider()
 
                 # 遍历每个检查项
                 for item in sub_mod['items']:
                     item_id = item['id']
-                    # 勾选框：仅显示检查项名称
+                    # 关键修改2：重点项（is_key=True）字体显示为橙色
+                    item_label = item['name']
+                    if item.get('is_key', False):
+                        item_label = f":orange[{item_label}]"
+                    
+                    # 勾选框：显示处理后的标签（重点项橙色）
                     is_checked = st.checkbox(
-                        item['name'],
+                        item_label,
                         key=f"chk_{item_id}",
                         value=st.session_state.eval_results[item_id]['is_checked']
                     )
@@ -281,7 +290,7 @@ def start_evaluation():
                     st.session_state.eval_results[item_id]['is_checked'] = is_checked
                     mod_earned += item['score'] if is_checked else 0
 
-                    # --- 关键调整：细化选项和Comment放在勾选框正下方 ---
+                    # 细化选项和Comment放在勾选框正下方
                     if not is_checked:
                         col_detail, col_comment = st.columns([1, 2])
                         with col_detail:
@@ -303,12 +312,12 @@ def start_evaluation():
                     st.markdown("")
 
         total_earned += mod_earned
-        total_possible += mod_possible
 
     # 5. 评估总结与评论
     st.subheader("评估总结")
     overall_percent = (total_earned / db.total_system_score * 100) if db.total_system_score > 0 else 0
-    st.metric("整体完成率", f"{overall_percent:.2f}%")
+    # 修改整体显示，移除"完成率"文字
+    st.metric("整体评分占比", f"{overall_percent:.2f}%")
     comments = st.text_area("评估评论", height=100, placeholder="请输入本次评估的总体评价或整改要求...")
 
     # 6. 保存与生成报告
@@ -350,7 +359,8 @@ def show_history():
         with st.expander(f"📅 {ev['eval_date']} | {factory_name} | {ev['eval_type']}"):
             col1, col2, col3 = st.columns([2,2,1])
             with col1: st.write(f"**评估人**：{ev['evaluator']}")
-            with col2: st.write(f"**完成率**：{ev['overall_percent']:.2f}%")
+            # 修改历史记录显示，移除"完成率"文字
+            with col2: st.write(f"**整体评分占比**：{ev['overall_percent']:.2f}%")
             with col3:
                 pdf_buffer = generate_pdf(ev)
                 st.download_button(
