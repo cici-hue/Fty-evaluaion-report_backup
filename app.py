@@ -512,7 +512,400 @@ class DataStore:
         filtered = self.evaluations.copy()
         
         if factory_id:
-            filtered = [ev for ev in filtered if ev['factory_id'] == factory_id]
+            filtered = [ev for ev in filtered if ev.get('factory_id') == factory_id]
         
         if start_date:
-            filtered = [ev for ev in filtered if ev
+            filtered = [ev for ev in filtered if ev.get('created_at', '') >= start_date.strftime('%Y-%m-%d')]
+        
+        if end_date:
+            filtered = [ev for ev in filtered if ev.get('created_at', '') <= end_date.strftime('%Y-%m-%d')]
+        
+        if status:
+            filtered = [ev for ev in filtered if ev.get('status') == status]
+        
+        return filtered
+
+# ==================== 初始化数据存储 ====================
+db = DataStore()
+
+# ==================== 页面路由和UI ====================
+def main():
+    """主页面函数"""
+    st.title("🏭 工厂流程审核评分系统（177分体系）")
+    
+    # 侧边栏导航
+    menu = ["评估列表", "新建评估", "数据统计", "系统设置"]
+    choice = st.sidebar.selectbox("功能菜单", menu)
+    
+    # 用户认证（简化版）
+    st.sidebar.subheader("用户登录")
+    username = st.sidebar.text_input("用户名")
+    password = st.sidebar.text_input("密码", type="password")
+    
+    if st.sidebar.button("登录"):
+        user = next((u for u in db.users if u['username'] == username and u['password'] == password), None)
+        if user:
+            st.session_state['user'] = user
+            st.success(f"欢迎 {user['name']}（{user['role']}）")
+        else:
+            st.error("用户名或密码错误")
+    
+    # 检查登录状态
+    if 'user' not in st.session_state:
+        st.info("请先在侧边栏登录系统")
+        return
+    
+    # 不同菜单的功能实现
+    if choice == "评估列表":
+        show_evaluation_list()
+    elif choice == "新建评估":
+        create_new_evaluation()
+    elif choice == "数据统计":
+        show_data_analysis()
+    elif choice == "系统设置":
+        show_system_settings()
+
+def show_evaluation_list():
+    """显示评估列表"""
+    st.subheader("📋 评估记录列表")
+    
+    # 筛选条件
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        factory_filter = st.selectbox(
+            "筛选工厂", 
+            ["全部"] + [f['name'] for f in db.factories],
+            index=0
+        )
+    with col2:
+        start_date = st.date_input("开始日期", date.today().replace(day=1))
+    with col3:
+        end_date = st.date_input("结束日期", date.today())
+    
+    # 获取筛选后的记录
+    factory_id = None
+    if factory_filter != "全部":
+        factory_id = next(f['id'] for f in db.factories if f['name'] == factory_filter)
+    
+    evaluations = db.get_evaluations(
+        factory_id=factory_id,
+        start_date=start_date,
+        end_date=end_date
+    )
+    
+    # 显示记录表格
+    if evaluations:
+        # 准备表格数据
+        table_data = []
+        for ev in evaluations:
+            factory_name = next(f['name'] for f in db.factories if f['id'] == ev['factory_id'])
+            total_score = ev.get('total_score', 0)
+            percentage = (total_score / 177) * 100 if 177 > 0 else 0
+            
+            table_data.append({
+                "评估ID": ev['id'],
+                "工厂名称": factory_name,
+                "评估日期": ev['created_at'],
+                "总得分": total_score,
+                "得分率": f"{percentage:.2f}%",
+                "状态": ev.get('status', '草稿')
+            })
+        
+        # 显示表格
+        df = pd.DataFrame(table_data)
+        st.dataframe(df, use_container_width=True)
+        
+        # 选择查看详情
+        ev_ids = [str(ev['id']) for ev in evaluations]
+        selected_id = st.selectbox("选择评估记录查看详情", ev_ids)
+        if selected_id:
+            show_evaluation_detail(int(selected_id))
+    else:
+        st.info("暂无评估记录，请先创建新评估")
+
+def create_new_evaluation():
+    """新建评估"""
+    st.subheader("✍️ 新建评估记录")
+    
+    # 基本信息
+    col1, col2 = st.columns(2)
+    with col1:
+        factory_id = st.selectbox(
+            "选择工厂",
+            [(f['id'], f['name']) for f in db.factories],
+            format_func=lambda x: x[1]
+        )[0]
+        evaluator = st.text_input("评估人员", value=st.session_state['user']['name'])
+    with col2:
+        eval_date = st.date_input("评估日期", date.today())
+        eval_type = st.selectbox("评估类型", ["常规审核", "专项审核", "整改复查"])
+    
+    # 评分区域
+    st.subheader("📊 评分详情（总分177分）")
+    
+    total_score = 0
+    module_scores = {}
+    
+    # 遍历所有大项
+    for module_name, module_data in db.modules.items():
+        with st.expander(f"🔍 {module_name}（满分{module_data['total_score']}分）", expanded=True):
+            module_total = 0
+            col1, col2 = st.columns([3, 1])
+            
+            # 遍历小项
+            for item in module_data['items']:
+                with col1:
+                    st.write(f"• {item['name']}")
+                    # 显示不合格项
+                    if item['unqualified']:
+                        st.warning(f"不合格项：{', '.join(item['unqualified'])}")
+                    # 显示建议
+                    if item['comment']:
+                        st.info(f"建议：{item['comment']}")
+                    
+                    # 评分输入
+                    score = st.slider(
+                        f"得分（满分{item['score']}分）",
+                        0, item['score'], item['score'],
+                        key=f"score_{item['id']}"
+                    )
+                    
+                    # 计算小项得分率
+                    item_percentage = (score / 177) * 100
+                    st.caption(f"小项得分率：{item_percentage:.2f}% (占总分177分的比例)")
+                    module_total += score
+                
+            # 大项统计
+            with col2:
+                st.metric(
+                    f"{module_name}得分",
+                    f"{module_total}/{module_data['total_score']}",
+                    f"{(module_total/module_data['total_score'])*100:.2f}%"
+                )
+            
+            module_scores[module_name] = {
+                "score": module_total,
+                "total": module_data['total_score'],
+                "percentage": (module_total / module_data['total_score']) * 100
+            }
+            total_score += module_total
+    
+    # 总得分统计
+    st.subheader("📈 总分统计")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("最终总得分", f"{total_score}/177")
+    with col2:
+        overall_percentage = (total_score / 177) * 100
+        st.metric("总得分率", f"{overall_percentage:.2f}%")
+    with col3:
+        status = "合格" if overall_percentage >= 80 else "不合格"
+        st.metric("评估结果", status)
+    
+    # 保存按钮
+    if st.button("💾 保存评估记录", type="primary"):
+        evaluation_data = {
+            "factory_id": factory_id,
+            "evaluator": evaluator,
+            "eval_date": eval_date.strftime('%Y-%m-%d'),
+            "eval_type": eval_type,
+            "total_score": total_score,
+            "overall_percentage": overall_percentage,
+            "status": "已完成",
+            "module_scores": module_scores,
+            "details": {}  # 可扩展存储详细评分
+        }
+        
+        # 保存评估记录
+        db.add_evaluation(evaluation_data)
+        st.success("评估记录保存成功！")
+        st.balloons()
+
+def show_evaluation_detail(evaluation_id):
+    """显示评估详情"""
+    st.subheader(f"📝 评估详情 - ID:{evaluation_id}")
+    
+    evaluation = db.get_evaluation(evaluation_id)
+    if not evaluation:
+        st.error("评估记录不存在")
+        return
+    
+    # 基本信息
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        factory_name = next(f['name'] for f in db.factories if f['id'] == evaluation['factory_id'])
+        st.info(f"工厂名称：{factory_name}")
+    with col2:
+        st.info(f"评估人员：{evaluation.get('evaluator', '未知')}")
+    with col3:
+        st.info(f"评估日期：{evaluation.get('eval_date', evaluation.get('created_at', '未知'))}")
+    
+    # 总分统计
+    col1, col2, col3 = st.columns(3)
+    total_score = evaluation.get('total_score', 0)
+    percentage = evaluation.get('overall_percentage', (total_score/177)*100)
+    
+    with col1:
+        st.metric("总得分", f"{total_score}/177")
+    with col2:
+        st.metric("得分率", f"{percentage:.2f}%")
+    with col3:
+        status = "合格" if percentage >= 80 else "不合格"
+        st.metric("评估结果", status)
+    
+    # 各模块得分详情
+    st.subheader("📋 各模块得分详情")
+    module_scores = evaluation.get('module_scores', {})
+    
+    # 显示模块得分表格
+    module_data = []
+    for module_name, scores in module_scores.items():
+        module_data.append({
+            "评估模块": module_name,
+            "模块得分": f"{scores['score']}/{scores['total']}",
+            "模块得分率": f"{scores['percentage']:.2f}%",
+            "占总分比例": f"{(scores['score']/177)*100:.2f}%"
+        })
+    
+    df = pd.DataFrame(module_data)
+    st.dataframe(df, use_container_width=True)
+    
+    # 导出报告
+    if st.button("📄 导出评估报告"):
+        export_evaluation_report(evaluation)
+
+def show_data_analysis():
+    """数据统计分析"""
+    st.subheader("📈 数据统计分析")
+    
+    if not db.evaluations:
+        st.info("暂无评估数据，无法生成统计分析")
+        return
+    
+    # 基础统计
+    total_evals = len(db.evaluations)
+    avg_score = sum(ev.get('total_score', 0) for ev in db.evaluations) / total_evals if total_evals > 0 else 0
+    avg_percentage = (avg_score / 177) * 100 if 177 > 0 else 0
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("总评估次数", total_evals)
+    with col2:
+        st.metric("平均得分", f"{avg_score:.2f}/177")
+    with col3:
+        st.metric("平均得分率", f"{avg_percentage:.2f}%")
+    
+    # 工厂得分对比
+    st.subheader("🏭 各工厂得分对比")
+    factory_scores = {}
+    for f in db.factories:
+        factory_evals = [ev for ev in db.evaluations if ev.get('factory_id') == f['id']]
+        if factory_evals:
+            avg = sum(ev.get('total_score', 0) for ev in factory_evals) / len(factory_evals)
+            factory_scores[f['name']] = avg
+    
+    if factory_scores:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        factories = list(factory_scores.keys())
+        scores = list(factory_scores.values())
+        
+        ax.bar(factories, scores, color='skyblue')
+        ax.set_ylabel('平均得分')
+        ax.set_title('各工厂平均得分对比')
+        ax.set_ylim(0, 177)
+        
+        # 添加数值标签
+        for i, v in enumerate(scores):
+            ax.text(i, v + 2, f'{v:.1f}', ha='center')
+        
+        st.pyplot(fig)
+
+def show_system_settings():
+    """系统设置"""
+    st.subheader("⚙️ 系统设置")
+    
+    # 仅管理员可访问
+    if st.session_state['user']['role'] != '管理员':
+        st.error("无权限访问系统设置！")
+        return
+    
+    # 工厂管理
+    with st.expander("🏭 工厂管理", expanded=True):
+        st.write("当前工厂列表：")
+        for f in db.factories:
+            st.write(f"ID: {f['id']}, 名称: {f['name']}, 联系人: {f['contact']}, 电话: {f['phone']}")
+        
+        # 添加新工厂
+        st.subheader("添加新工厂")
+        col1, col2 = st.columns(2)
+        with col1:
+            new_factory_name = st.text_input("工厂名称")
+            new_factory_contact = st.text_input("联系人")
+        with col2:
+            new_factory_phone = st.text_input("联系电话")
+        
+        if st.button("添加工厂"):
+            new_id = max(f['id'] for f in db.factories) + 1 if db.factories else 1
+            db.factories.append({
+                "id": new_id,
+                "name": new_factory_name,
+                "contact": new_factory_contact,
+                "phone": new_factory_phone
+            })
+            st.success(f"工厂 {new_factory_name} 添加成功！")
+
+def export_evaluation_report(evaluation):
+    """导出评估报告"""
+    # 创建BytesIO缓冲区
+    buffer = BytesIO()
+    
+    # 创建Excel文件
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        # 基本信息表
+        basic_info = {
+            "评估ID": [evaluation['id']],
+            "工厂ID": [evaluation['factory_id']],
+            "工厂名称": [next(f['name'] for f in db.factories if f['id'] == evaluation['factory_id'])],
+            "评估人员": [evaluation.get('evaluator', '')],
+            "评估日期": [evaluation.get('eval_date', '')],
+            "评估类型": [evaluation.get('eval_type', '')],
+            "总得分": [evaluation.get('total_score', 0)],
+            "总分值": [177],
+            "得分率": [f"{evaluation.get('overall_percentage', 0):.2f}%"],
+            "评估状态": [evaluation.get('status', '草稿')]
+        }
+        pd.DataFrame(basic_info).to_excel(writer, sheet_name='基本信息', index=False)
+        
+        # 模块得分表
+        module_scores = evaluation.get('module_scores', {})
+        module_data = []
+        for module_name, scores in module_scores.items():
+            module_data.append({
+                "评估模块": module_name,
+                "模块得分": scores['score'],
+                "模块总分": scores['total'],
+                "模块得分率": f"{scores['percentage']:.2f}%",
+                "占总分比例": f"{(scores['score']/177)*100:.2f}%"
+            })
+        pd.DataFrame(module_data).to_excel(writer, sheet_name='模块得分', index=False)
+    
+    # 重置缓冲区指针
+    buffer.seek(0)
+    
+    # 提供下载
+    st.download_button(
+        label="下载Excel报告",
+        data=buffer,
+        file_name=f"工厂评估报告_{evaluation['id']}_{date.today()}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    st.success("报告生成成功，点击按钮下载！")
+
+# ==================== 启动应用 ====================
+if __name__ == "__main__":
+    # 导入matplotlib（避免提前导入导致的问题）
+    import matplotlib.pyplot as plt
+    plt.rcParams['font.sans-serif'] = ['SimHei']  # 支持中文
+    plt.rcParams['axes.unicode_minus'] = False    # 支持负号
+    
+    main()
