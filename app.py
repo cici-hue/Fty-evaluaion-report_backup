@@ -285,6 +285,7 @@ def main():
         st.info("功能开发中...")
 
 # ==================== 核心评估页面（一键全选/清空 修复版） ====================
+# ==================== 核心评估页面（一键全选/清空 修复版） ====================
 def start_evaluation():
     st.subheader("开始评估")
 
@@ -294,7 +295,7 @@ def start_evaluation():
     with col2:
         eval_date = st.date_input("日期", date.today())
     with col3:
-        evaluator = st.text_input("评估人员", value=st.session_state['user'])
+        eval_evaluator = st.text_input("评估人员", value=st.session_state['user'])
     with col4:
         eval_type = st.selectbox("评估类型", ["常规审核", "整改复查"])
 
@@ -316,24 +317,33 @@ def start_evaluation():
             for it in sub_mod['items']:
                 all_item_ids.append(it['id'])
 
-    # 初始化
+    # 初始化 eval_results 字典
     if 'eval_results' not in st.session_state:
         st.session_state.eval_results = {}
+    
     for it_id in all_item_ids:
         if it_id not in st.session_state.eval_results:
             st.session_state.eval_results[it_id] = {"is_checked": False, "details": []}
 
-    # —————— 修复：一键全选 / 清空 ——————
-    col_a, col_b, _ = st.columns([1,1,6])
+    # —————— 修复版：一键全选 / 清空 ——————
+    col_a, col_b, _ = st.columns([1, 1, 6])
+    
     with col_a:
         if st.button("✅ 一键全选"):
             for it_id in all_item_ids:
+                # 1. 更新逻辑数据字典
                 st.session_state.eval_results[it_id]["is_checked"] = True
+                # 2. 同时更新复选框组件的 Key 状态（这是修复 UI 的关键）
+                st.session_state[f"chk_{it_id}"] = True
             st.rerun()
+
     with col_b:
         if st.button("❌ 一键清空"):
             for it_id in all_item_ids:
+                # 1. 更新逻辑数据字典
                 st.session_state.eval_results[it_id]["is_checked"] = False
+                # 2. 同时更新复选框组件的 Key 状态
+                st.session_state[f"chk_{it_id}"] = False
             st.rerun()
 
     st.subheader("评分详情")
@@ -344,11 +354,13 @@ def start_evaluation():
         mod_earned = 0
         with st.expander(f"📦 {mod_name}", expanded=True):
             for sub_name, sub_mod in mod['sub_modules'].items():
+                # 注意：计算得分逻辑改为直接读取 session_state[key]
                 sub_earned = sum(
                     it['score'] for it in sub_mod['items']
-                    if st.session_state.eval_results[it['id']]['is_checked']
+                    if st.session_state.get(f"chk_{it['id']}", False)
                 )
-                sub_percent = (sub_earned / db.total_system_score *100) if db.total_system_score else 0
+                
+                sub_percent = (sub_earned / db.total_system_score * 100) if db.total_system_score else 0
                 st.markdown(f"### {sub_name} ({sub_percent:.2f}%)")
                 st.divider()
 
@@ -358,16 +370,16 @@ def start_evaluation():
                     if it.get('is_key'):
                         label = f":orange[{label}]"
 
-                    # 关键：checkbox 强制从 session_state 取值
-                    checked = st.session_state.eval_results[it_id]['is_checked']
-                    new_val = st.checkbox(label, value=checked, key=f"chk_{it_id}")
+                    # 渲染复选框
+                    # 如果 session_state 已经有了对应的 key（被全选按钮设置了），Checkbox 会自动读取它
+                    new_val = st.checkbox(label, key=f"chk_{it_id}")
 
-                    # 同步回状态
+                    # 同步回逻辑字典 eval_results
                     st.session_state.eval_results[it_id]['is_checked'] = new_val
                     mod_earned += it['score'] if new_val else 0
 
                     if not new_val:
-                        c1, c2 = st.columns([1,2])
+                        c1, c2 = st.columns([1, 2])
                         with c1:
                             if it['details']:
                                 details = st.multiselect(
@@ -383,14 +395,14 @@ def start_evaluation():
         total_earned += mod_earned
 
     st.subheader("评估总结")
-    overall_percent = (total_earned / db.total_system_score *100) if db.total_system_score else 0
+    overall_percent = (total_earned / db.total_system_score * 100) if db.total_system_score else 0
     st.metric("整体评分占比", f"{overall_percent:.2f}%")
     comments = st.text_area("评估评论", height=100)
 
     if st.button("保存并生成报告", type="primary"):
         ev_data = {
             "factory_id": factory_id,
-            "evaluator": evaluator,
+            "evaluator": eval_evaluator,
             "eval_date": eval_date.strftime("%Y-%m-%d"),
             "eval_type": eval_type,
             "selected_modules": selected_modules,
@@ -403,7 +415,8 @@ def start_evaluation():
         pdf_buf = generate_pdf(saved)
         st.download_button("📥 下载PDF", pdf_buf, f"评估报告_{saved['id']}.pdf")
 
-        del st.session_state.eval_results
+        # 保存后清理状态（可选，根据用户习惯）
+        # del st.session_state.eval_results
 
 # ==================== 历史记录 ====================
 def show_history():
