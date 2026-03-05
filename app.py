@@ -20,9 +20,7 @@ st.set_page_config(
 
 # ==================== 字体配置 - 使用上传的SimSun.ttf ====================
 def setup_chinese_font():
-    """配置中文字体（使用上传的SimSun.ttf）"""
     font_path = os.path.join(os.path.dirname(__file__), "SimSun.ttf")
-    
     if os.path.exists(font_path):
         pdfmetrics.registerFont(TTFont('SimSun', font_path))
         return 'SimSun'
@@ -44,10 +42,9 @@ class DataStore:
         self.factories = [{"id": 1, "name": "深圳XX服装厂"}, {"id": 2, "name": "广州XX制衣厂"}]
         self.modules = self._init_modules()
         self.evaluations = self._load_evaluations()
-        self.total_system_score = 177  # 总分177
+        self.total_system_score = 177
 
     def _init_modules(self):
-        """核心评估项"""
         return {
             "纸样、样衣制作": {
                 "total_score": 14,
@@ -163,98 +160,69 @@ class DataStore:
 # ==================== 初始化 ====================
 db = DataStore()
 
-# ==================== PDF生成工具 (使用SimSun字体) ====================
+# ==================== PDF生成工具 ====================
 def generate_pdf(evaluation):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
-    
-    # 创建支持中文的样式表
     styles = getSampleStyleSheet()
-    
-    # 自定义中文样式
+
     chinese_styles = {
         'Heading1': ParagraphStyle(
-            'CustomHeading1',
-            parent=styles['Heading1'],
-            fontName=CHINESE_FONT,
-            fontSize=18,
-            spaceAfter=20,
-            alignment=1  # 1 表示居中
+            'CustomHeading1', parent=styles['Heading1'], fontName=CHINESE_FONT,
+            fontSize=18, spaceAfter=20, alignment=1
         ),
         'Heading2': ParagraphStyle(
-            'CustomHeading2',
-            parent=styles['Heading2'],
-            fontName=CHINESE_FONT,
-            fontSize=14,
-            spaceAfter=12
+            'CustomHeading2', parent=styles['Heading2'], fontName=CHINESE_FONT,
+            fontSize=14, spaceAfter=12
         ),
         'Normal': ParagraphStyle(
-            'CustomNormal',
-            parent=styles['Normal'],
-            fontName=CHINESE_FONT,
-            fontSize=12,
-            spaceAfter=6
+            'CustomNormal', parent=styles['Normal'], fontName=CHINESE_FONT,
+            fontSize=12, spaceAfter=6
         ),
         'TotalScore': ParagraphStyle(
-            'CustomTotalScore',
-            parent=styles['Normal'],
-            fontName=CHINESE_FONT,
-            fontSize=16,  # 字体加大
-            spaceAfter=12,
-            textColor='red',  # 红色
-            bold=True  # 加粗
+            'CustomTotalScore', parent=styles['Normal'], fontName=CHINESE_FONT,
+            fontSize=16, spaceAfter=12, textColor='red', bold=True
         ),
         'KeyProcess': ParagraphStyle(
-            'CustomKeyProcess',
-            parent=styles['Normal'],
-            fontName=CHINESE_FONT,
-            fontSize=12,
-            spaceAfter=6,
-            textColor='#FF8C00'  # 橙色
+            'CustomKeyProcess', parent=styles['Normal'], fontName=CHINESE_FONT,
+            fontSize=12, spaceAfter=6, textColor='#FF8C00'
         )
     }
 
     elements = []
-
-    # 1. 标题居中
     elements.append(Paragraph("工厂流程审核报告", chinese_styles['Heading1']))
     factory_name = next(f['name'] for f in db.factories if f['id'] == evaluation['factory_id'])
     elements.extend([
         Paragraph(f"工厂名称：{factory_name}", chinese_styles['Normal']),
         Paragraph(f"评估日期：{evaluation['eval_date']}", chinese_styles['Normal']),
         Paragraph(f"评估人员：{evaluation['evaluator']}", chinese_styles['Normal']),
-        # 2. 工厂总分，加大加粗加红
         Paragraph(f"工厂总分：{evaluation['overall_percent']:.2f}%", chinese_styles['TotalScore']),
         Spacer(1, 12)
     ])
 
-    # 3. 问题汇总：分重点工序和其他工序
     elements.append(Paragraph("一、存在问题汇总", chinese_styles['Heading2']))
     elements.append(Paragraph("经评估，请该工厂注意以下方面：", chinese_styles['Normal']))
-    
-    # 先把问题分成重点项和非重点项
+
     key_items = []
     other_items = []
-    
+
     for mod_name in evaluation['selected_modules']:
         mod = db.modules[mod_name]
         for sub_name, sub_mod in mod['sub_modules'].items():
             for item in sub_mod['items']:
                 res = evaluation['results'].get(item['id'], {})
                 if not res.get('is_checked', False):
-                    # 构造条目文本
                     item_text = f"【{mod_name}-{sub_name}】{item['name']}"
                     if res.get('details'):
                         item_text += f"（问题详情：{', '.join(res['details'])}）"
                     if item['comment']:
                         item_text += f" 改进建议：{item['comment']}"
-                    
+
                     if item.get('is_key', False):
                         key_items.append(item_text)
                     else:
                         other_items.append(item_text)
 
-    # （一）重点工序（标题+内容都橙色）
     if key_items:
         elements.append(Paragraph("（一）重点工序", chinese_styles['KeyProcess']))
         for i, text in enumerate(key_items, 1):
@@ -264,7 +232,6 @@ def generate_pdf(evaluation):
         elements.append(Paragraph("（一）重点工序：本次评估未发现重点工序问题", chinese_styles['KeyProcess']))
         elements.append(Spacer(1, 6))
 
-    # （二）其他工序（正常黑色）
     if other_items:
         elements.append(Paragraph("（二）其他工序", chinese_styles['Normal']))
         for i, text in enumerate(other_items, 1):
@@ -274,27 +241,19 @@ def generate_pdf(evaluation):
         elements.append(Paragraph("（二）其他工序：本次评估未发现其他工序问题", chinese_styles['Normal']))
         elements.append(Spacer(1, 6))
 
-    # 4. 评估者评论（保持不变）
     elements.append(Paragraph("二、评估者评论", chinese_styles['Heading2']))
     if evaluation['comments']:
         elements.append(Paragraph(evaluation['comments'], chinese_styles['Normal']))
     else:
         elements.append(Paragraph("无评论", chinese_styles['Normal']))
-    
+
     doc.build(elements)
     buffer.seek(0)
     return buffer
 
 # ==================== 页面路由 ====================
 def main():
-    # 初始化session状态
-    if 'logged_in' not in st.session_state:
-        st.session_state.logged_in = False
-    if 'eval_results' not in st.session_state:
-        st.session_state.eval_results = {}
-
-    # 登录页
-    if not st.session_state.logged_in:
+    if 'user' not in st.session_state:
         st.title("工厂流程审核评分系统")
         col1, col2, col3 = st.columns([1,2,1])
         with col2:
@@ -302,22 +261,21 @@ def main():
             password = st.text_input("密码", type="password")
             if st.button("登录", type="primary"):
                 if next((u for u in db.users if u['username'] == username and u['password'] == password), None):
-                    st.session_state.logged_in = True
+                    st.session_state['user'] = username
                     st.rerun()
                 else:
                     st.error("账号或密码错误")
         return
 
-    # 已登录状态 - 侧边栏增加退出登录按钮
-    st.sidebar.title(f"欢迎，{st.session_state.get('user', '管理员')}")
-    if st.sidebar.button("退出登录", type="secondary"):
-        st.session_state.logged_in = False
-        st.session_state.eval_results = {}
+    st.sidebar.title(f"欢迎，{st.session_state['user']}")
+    if st.sidebar.button("退出登录"):
+        del st.session_state['user']
+        if 'eval_results' in st.session_state:
+            del st.session_state['eval_results']
         st.rerun()
 
-    # 功能菜单
     menu = st.sidebar.radio("功能菜单", ["开始评估", "历史记录", "对比分析"])
-    
+
     if menu == "开始评估":
         start_evaluation()
     elif menu == "历史记录":
@@ -326,171 +284,143 @@ def main():
         st.subheader("对比分析")
         st.info("功能开发中...")
 
-# ==================== 核心评估页面（增加一键全选/清空功能） ====================
+# ==================== 核心评估页面（一键全选/清空 修复版） ====================
 def start_evaluation():
     st.subheader("开始评估")
-    
-    # 1. 评估基本信息
+
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         factory_id = st.selectbox("工厂", [(f['id'], f['name']) for f in db.factories], format_func=lambda x: x[1])[0]
     with col2:
         eval_date = st.date_input("日期", date.today())
     with col3:
-        evaluator = st.text_input("评估人员", value=st.session_state.get('user', '管理员'))
+        evaluator = st.text_input("评估人员", value=st.session_state['user'])
     with col4:
         eval_type = st.selectbox("评估类型", ["常规审核", "整改复查"])
 
-    # 2. 选择评估大项
     all_modules = list(db.modules.keys())
     if eval_type == "常规审核":
         selected_modules = all_modules
         st.caption("常规审核：默认包含所有评估模块")
     else:
-        selected_modules = st.multiselect("选择整改模块", all_modules, placeholder="请选择需要复查的模块")
+        selected_modules = st.multiselect("选择整改模块", all_modules)
         if not selected_modules:
-            st.warning("请至少选择一个评估模块")
+            st.warning("请至少选择一个模块")
             return
 
-    # 3. 初始化评估结果存储
-    if not st.session_state.eval_results:
-        for mod_name in selected_modules:
-            mod = db.modules[mod_name]
-            for sub_name, sub_mod in mod['sub_modules'].items():
-                for item in sub_mod['items']:
-                    st.session_state.eval_results[item['id']] = {"is_checked": False, "details": []}
+    # 收集当前页面所有 item_id
+    all_item_ids = []
+    for mod_name in selected_modules:
+        mod = db.modules[mod_name]
+        for sub_mod in mod['sub_modules'].values():
+            for it in sub_mod['items']:
+                all_item_ids.append(it['id'])
 
-    # 新增：一键全选/清空按钮
-    col_btn1, col_btn2, _ = st.columns([1,1,8])
-    with col_btn1:
-        if st.button("✅ 一键全选", type="primary"):
-            for item_id in st.session_state.eval_results.keys():
-                st.session_state.eval_results[item_id]['is_checked'] = True
+    # 初始化
+    if 'eval_results' not in st.session_state:
+        st.session_state.eval_results = {}
+    for it_id in all_item_ids:
+        if it_id not in st.session_state.eval_results:
+            st.session_state.eval_results[it_id] = {"is_checked": False, "details": []}
+
+    # —————— 修复：一键全选 / 清空 ——————
+    col_a, col_b, _ = st.columns([1,1,6])
+    with col_a:
+        if st.button("✅ 一键全选"):
+            for it_id in all_item_ids:
+                st.session_state.eval_results[it_id]["is_checked"] = True
             st.rerun()
-    with col_btn2:
-        if st.button("❌ 一键清空", type="secondary"):
-            for item_id in st.session_state.eval_results.keys():
-                st.session_state.eval_results[item_id]['is_checked'] = False
+    with col_b:
+        if st.button("❌ 一键清空"):
+            for it_id in all_item_ids:
+                st.session_state.eval_results[it_id]["is_checked"] = False
             st.rerun()
 
-    # 4. 评分详情（核心UI）
     st.subheader("评分详情")
     total_earned = 0
 
     for mod_name in selected_modules:
         mod = db.modules[mod_name]
-        # 大项Expander
         mod_earned = 0
-        
         with st.expander(f"📦 {mod_name}", expanded=True):
             for sub_name, sub_mod in mod['sub_modules'].items():
-                # 小项标题：计算小项得分/总分177的百分比
                 sub_earned = sum(
-                    item['score'] for item in sub_mod['items']
-                    if st.session_state.eval_results[item['id']]['is_checked']
+                    it['score'] for it in sub_mod['items']
+                    if st.session_state.eval_results[it['id']]['is_checked']
                 )
-                sub_percent = (sub_earned / db.total_system_score * 100) if db.total_system_score > 0 else 0
+                sub_percent = (sub_earned / db.total_system_score *100) if db.total_system_score else 0
                 st.markdown(f"### {sub_name} ({sub_percent:.2f}%)")
                 st.divider()
 
-                # 遍历每个检查项
-                for item in sub_mod['items']:
-                    item_id = item['id']
-                    # 重点项字体显示为橙色
-                    item_label = item['name']
-                    if item.get('is_key', False):
-                        item_label = f":orange[{item_label}]"
-                    
-                    # 勾选框
-                    is_checked = st.checkbox(
-                        item_label,
-                        key=f"chk_{item_id}",
-                        value=st.session_state.eval_results[item_id]['is_checked']
-                    )
-                    
-                    # 实时更新状态
-                    st.session_state.eval_results[item_id]['is_checked'] = is_checked
-                    mod_earned += item['score'] if is_checked else 0
+                for it in sub_mod['items']:
+                    it_id = it['id']
+                    label = it['name']
+                    if it.get('is_key'):
+                        label = f":orange[{label}]"
 
-                    # 细化选项和Comment
-                    if not is_checked:
-                        col_detail, col_comment = st.columns([1, 2])
-                        with col_detail:
-                            # 问题详情选择框
-                            if item['details']:
+                    # 关键：checkbox 强制从 session_state 取值
+                    checked = st.session_state.eval_results[it_id]['is_checked']
+                    new_val = st.checkbox(label, value=checked, key=f"chk_{it_id}")
+
+                    # 同步回状态
+                    st.session_state.eval_results[it_id]['is_checked'] = new_val
+                    mod_earned += it['score'] if new_val else 0
+
+                    if not new_val:
+                        c1, c2 = st.columns([1,2])
+                        with c1:
+                            if it['details']:
                                 details = st.multiselect(
-                                    "问题详情",
-                                    item['details'],
-                                    key=f"det_{item_id}",
-                                    default=st.session_state.eval_results[item_id]['details']
+                                    "问题详情", it['details'],
+                                    default=st.session_state.eval_results[it_id]['details'],
+                                    key=f"det_{it_id}"
                                 )
-                                st.session_state.eval_results[item_id]['details'] = details
-                        with col_comment:
-                            # 自动显示的改进建议
-                            if item['comment']:
-                                st.info(f"改进建议：{item['comment']}")
-                    
-                    # 间距
+                                st.session_state.eval_results[it_id]['details'] = details
+                        with c2:
+                            if it['comment']:
+                                st.info(f"改进建议：{it['comment']}")
                     st.markdown("")
-
         total_earned += mod_earned
 
-    # 5. 评估总结与评论
     st.subheader("评估总结")
-    overall_percent = (total_earned / db.total_system_score * 100) if db.total_system_score > 0 else 0
+    overall_percent = (total_earned / db.total_system_score *100) if db.total_system_score else 0
     st.metric("整体评分占比", f"{overall_percent:.2f}%")
-    comments = st.text_area("评估评论", height=100, placeholder="请输入本次评估的总体评价或整改要求...")
+    comments = st.text_area("评估评论", height=100)
 
-    # 6. 保存与生成报告
     if st.button("保存并生成报告", type="primary"):
-        evaluation_data = {
+        ev_data = {
             "factory_id": factory_id,
             "evaluator": evaluator,
-            "eval_date": eval_date.strftime('%Y-%m-%d'),
+            "eval_date": eval_date.strftime("%Y-%m-%d"),
             "eval_type": eval_type,
             "selected_modules": selected_modules,
             "overall_percent": overall_percent,
             "results": st.session_state.eval_results,
             "comments": comments
         }
-        saved_ev = db.add_evaluation(evaluation_data)
-        st.success("评估记录已保存！")
-        
-        # 生成PDF
-        pdf_buffer = generate_pdf(evaluation_data)
-        st.download_button(
-            label="📄 下载PDF报告",
-            data=pdf_buffer,
-            file_name=f"评估报告_{saved_ev['id']}_{eval_date}.pdf",
-            mime="application/pdf"
-        )
-        
-        # 重置session
+        saved = db.add_evaluation(ev_data)
+        st.success("保存成功！")
+        pdf_buf = generate_pdf(saved)
+        st.download_button("📥 下载PDF", pdf_buf, f"评估报告_{saved['id']}.pdf")
+
         del st.session_state.eval_results
 
-# ==================== 历史记录页面 ====================
+# ==================== 历史记录 ====================
 def show_history():
     st.subheader("历史记录")
     if not db.evaluations:
-        st.info("暂无评估记录")
+        st.info("暂无记录")
         return
-
     for ev in reversed(db.evaluations):
         factory_name = next(f['name'] for f in db.factories if f['id'] == ev['factory_id'])
         with st.expander(f"📅 {ev['eval_date']} | {factory_name} | {ev['eval_type']}"):
-            col1, col2, col3 = st.columns([2,2,1])
-            with col1: st.write(f"**评估人**：{ev['evaluator']}")
-            with col2: st.write(f"**整体评分占比**：{ev['overall_percent']:.2f}%")
-            with col3:
-                pdf_buffer = generate_pdf(ev)
-                st.download_button(
-                    "下载报告",
-                    data=pdf_buffer,
-                    file_name=f"报告_{ev['id']}.pdf",
-                    mime="application/pdf",
-                    key=f"dl_{ev['id']}"
-                )
-            st.write(f"**评论**：{ev['comments']}")
+            c1,c2,c3 = st.columns([2,2,1])
+            with c1: st.write(f"评估人：{ev['evaluator']}")
+            with c2: st.write(f"得分：{ev['overall_percent']:.2f}%")
+            with c3:
+                pdf_buf = generate_pdf(ev)
+                st.download_button("下载报告", pdf_buf, f"报告_{ev['id']}.pdf", key=f"dl{ev['id']}")
+            st.write(f"评论：{ev['comments']}")
 
 if __name__ == "__main__":
     main()
