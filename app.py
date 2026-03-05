@@ -32,8 +32,11 @@ CHINESE_FONT = setup_chinese_font()
 
 # ==================== 数据初始化 ====================
 DATA_DIR = "data"
+MEDIA_DIR = os.path.join(DATA_DIR, "media") # 新增：图片存储目录
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
+if not os.path.exists(MEDIA_DIR):
+    os.makedirs(MEDIA_DIR)
 
 # ==================== 评分体系数据模型 ====================
 class DataStore:
@@ -285,10 +288,11 @@ def main():
         st.info("功能开发中...")
 
 # ==================== 核心评估页面（一键全选/清空 修复版） ====================
-# ==================== 核心评估页面（一键全选/清空 修复版） ====================
+# ==================== 核心评估页面（增加拍照功能） ====================
 def start_evaluation():
     st.subheader("开始评估")
 
+    # --- 基础信息配置 ---
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         factory_id = st.selectbox("工厂", [(f['id'], f['name']) for f in db.factories], format_func=lambda x: x[1])[0]
@@ -300,49 +304,43 @@ def start_evaluation():
         eval_type = st.selectbox("评估类型", ["常规审核", "整改复查"])
 
     all_modules = list(db.modules.keys())
-    if eval_type == "常规审核":
-        selected_modules = all_modules
-        st.caption("常规审核：默认包含所有评估模块")
-    else:
-        selected_modules = st.multiselect("选择整改模块", all_modules)
-        if not selected_modules:
-            st.warning("请至少选择一个模块")
-            return
+    selected_modules = all_modules if eval_type == "常规审核" else st.multiselect("选择整改模块", all_modules)
+    
+    if not selected_modules:
+        st.warning("请选择至少一个模块")
+        return
 
     # 收集当前页面所有 item_id
     all_item_ids = []
     for mod_name in selected_modules:
-        mod = db.modules[mod_name]
-        for sub_mod in mod['sub_modules'].values():
+        for sub_mod in db.modules[mod_name]['sub_modules'].values():
             for it in sub_mod['items']:
                 all_item_ids.append(it['id'])
 
-    # 初始化 eval_results 字典
+    # 初始化逻辑（增加 image_path 存储）
     if 'eval_results' not in st.session_state:
         st.session_state.eval_results = {}
     
     for it_id in all_item_ids:
         if it_id not in st.session_state.eval_results:
-            st.session_state.eval_results[it_id] = {"is_checked": False, "details": []}
+            st.session_state.eval_results[it_id] = {
+                "is_checked": False, 
+                "details": [], 
+                "image_path": None  # 新增：用于存储图片文件路径
+            }
 
-    # —————— 修复版：一键全选 / 清空 ——————
+    # 一键操作按钮
     col_a, col_b, _ = st.columns([1, 1, 6])
-    
     with col_a:
         if st.button("✅ 一键全选"):
             for it_id in all_item_ids:
-                # 1. 更新逻辑数据字典
                 st.session_state.eval_results[it_id]["is_checked"] = True
-                # 2. 同时更新复选框组件的 Key 状态（这是修复 UI 的关键）
                 st.session_state[f"chk_{it_id}"] = True
             st.rerun()
-
     with col_b:
         if st.button("❌ 一键清空"):
             for it_id in all_item_ids:
-                # 1. 更新逻辑数据字典
                 st.session_state.eval_results[it_id]["is_checked"] = False
-                # 2. 同时更新复选框组件的 Key 状态
                 st.session_state[f"chk_{it_id}"] = False
             st.rerun()
 
@@ -354,46 +352,64 @@ def start_evaluation():
         mod_earned = 0
         with st.expander(f"📦 {mod_name}", expanded=True):
             for sub_name, sub_mod in mod['sub_modules'].items():
-                # 注意：计算得分逻辑改为直接读取 session_state[key]
-                sub_earned = sum(
-                    it['score'] for it in sub_mod['items']
-                    if st.session_state.get(f"chk_{it['id']}", False)
-                )
-                
-                sub_percent = (sub_earned / db.total_system_score * 100) if db.total_system_score else 0
-                st.markdown(f"### {sub_name} ({sub_percent:.2f}%)")
+                sub_earned = sum(it['score'] for it in sub_mod['items'] if st.session_state.get(f"chk_{it['id']}", False))
+                st.markdown(f"### {sub_name}")
                 st.divider()
 
                 for it in sub_mod['items']:
                     it_id = it['id']
                     label = it['name']
-                    if it.get('is_key'):
-                        label = f":orange[{label}]"
+                    if it.get('is_key'): label = f":orange[{label}]"
 
-                    # 渲染复选框
-                    # 如果 session_state 已经有了对应的 key（被全选按钮设置了），Checkbox 会自动读取它
-                    new_val = st.checkbox(label, key=f"chk_{it_id}")
+                    # 1. 复选框
+                    checked = st.checkbox(label, key=f"chk_{it_id}")
+                    st.session_state.eval_results[it_id]['is_checked'] = checked
+                    mod_earned += it['score'] if checked else 0
 
-                    # 同步回逻辑字典 eval_results
-                    st.session_state.eval_results[it_id]['is_checked'] = new_val
-                    mod_earned += it['score'] if new_val else 0
+                    # 2. 详情与图片上传区 (占据一排)
+                    c1, c2, c3 = st.columns([1.5, 1.5, 1])
+                    
+                    # 问题详情选择
+                    with c1:
+                        if not checked and it['details']:
+                            st.session_state.eval_results[it_id]['details'] = st.multiselect(
+                                "问题详情", it['details'],
+                                default=st.session_state.eval_results[it_id]['details'],
+                                key=f"det_{it_id}"
+                            )
+                        elif not checked:
+                            st.caption("暂无预设问题详情")
 
-                    if not new_val:
-                        c1, c2 = st.columns([1, 2])
-                        with c1:
-                            if it['details']:
-                                details = st.multiselect(
-                                    "问题详情", it['details'],
-                                    default=st.session_state.eval_results[it_id]['details'],
-                                    key=f"det_{it_id}"
-                                )
-                                st.session_state.eval_results[it_id]['details'] = details
-                        with c2:
-                            if it['comment']:
-                                st.info(f"改进建议：{it['comment']}")
-                    st.markdown("")
+                    # 图片上传/拍照
+                    with c2:
+                        # 使用 file_uploader，在手机端会自动触发“拍照或相册”
+                        img_file = st.file_uploader(
+                            "上传图片/拍照", 
+                            type=['jpg', 'jpeg', 'png'], 
+                            key=f"img_{it_id}",
+                            label_visibility="collapsed" # 隐藏标签使界面紧凑
+                        )
+                        
+                        if img_file:
+                            # 自动保存文件到本地
+                            file_ext = img_file.name.split('.')[-1]
+                            file_name = f"{it_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{file_ext}"
+                            save_path = os.path.join(MEDIA_DIR, file_name)
+                            with open(save_path, "wb") as f:
+                                f.write(img_file.getbuffer())
+                            st.session_state.eval_results[it_id]['image_path'] = save_path
+                            st.caption("✅ 已上传")
+
+                    # 改进建议预览
+                    with c3:
+                        if not checked and it['comment']:
+                            with st.popover("查看建议"):
+                                st.info(it['comment'])
+
+                    st.markdown("---")
         total_earned += mod_earned
 
+    # 评估总结
     st.subheader("评估总结")
     overall_percent = (total_earned / db.total_system_score * 100) if db.total_system_score else 0
     st.metric("整体评分占比", f"{overall_percent:.2f}%")
@@ -411,12 +427,13 @@ def start_evaluation():
             "comments": comments
         }
         saved = db.add_evaluation(ev_data)
-        st.success("保存成功！")
+        st.success("保存成功！报告已归档。")
         pdf_buf = generate_pdf(saved)
-        st.download_button("📥 下载PDF", pdf_buf, f"评估报告_{saved['id']}.pdf")
-
-        # 保存后清理状态（可选，根据用户习惯）
-        # del st.session_state.eval_results
+        st.download_button("📥 下载PDF报告", pdf_buf, f"评估报告_{saved['id']}.pdf")
+        
+        # 清除状态以备下次使用
+        if 'eval_results' in st.session_state:
+            del st.session_state.eval_results
 
 # ==================== 历史记录 ====================
 def show_history():
