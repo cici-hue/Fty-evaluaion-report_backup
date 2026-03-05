@@ -6,7 +6,11 @@ import os
 from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+import tempfile
+import shutil
 
 # ==================== 页面配置 ====================
 st.set_page_config(
@@ -15,6 +19,38 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ==================== 字体配置 - 解决中文乱码问题 ====================
+def setup_chinese_font():
+    """配置中文字体，解决PDF中文显示乱码问题"""
+    # 尝试查找系统中文字体，优先使用宋体
+    font_paths = [
+        "C:/Windows/Fonts/simsun.ttc",  # Windows 宋体
+        "/System/Library/Fonts/PingFang.ttc",  # Mac 苹方
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux 备用
+    ]
+    
+    # 创建临时字体文件（避免权限问题）
+    temp_font_path = None
+    for font_path in font_paths:
+        if os.path.exists(font_path):
+            # 复制到临时文件
+            temp_dir = tempfile.mkdtemp()
+            temp_font_path = os.path.join(temp_dir, "simfang.ttf")
+            shutil.copy2(font_path, temp_font_path)
+            break
+    
+    # 如果找不到系统字体，使用ReportLab默认支持的字体替代
+    if temp_font_path and os.path.exists(temp_font_path):
+        pdfmetrics.registerFont(TTFont('Chinese', temp_font_path))
+        return 'Chinese'
+    else:
+        # 备用方案：使用支持中文的默认字体
+        pdfmetrics.registerFont(TTFont('Helvetica', 'Helvetica'))
+        return 'Helvetica'
+
+# 获取中文字体名称
+CHINESE_FONT = setup_chinese_font()
 
 # ==================== 数据初始化 ====================
 DATA_DIR = "data"
@@ -147,41 +183,79 @@ class DataStore:
 # ==================== 初始化 ====================
 db = DataStore()
 
-# ==================== PDF生成工具 ====================
+# ==================== PDF生成工具 (修复中文显示) ====================
 def generate_pdf(evaluation):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
+    
+    # 创建支持中文的样式表
     styles = getSampleStyleSheet()
+    
+    # 自定义中文样式
+    chinese_styles = {
+        'Heading1': ParagraphStyle(
+            'CustomHeading1',
+            parent=styles['Heading1'],
+            fontName=CHINESE_FONT,
+            fontSize=18,
+            spaceAfter=20
+        ),
+        'Heading2': ParagraphStyle(
+            'CustomHeading2',
+            parent=styles['Heading2'],
+            fontName=CHINESE_FONT,
+            fontSize=14,
+            spaceAfter=12
+        ),
+        'Normal': ParagraphStyle(
+            'CustomNormal',
+            parent=styles['Normal'],
+            fontName=CHINESE_FONT,
+            fontSize=12,
+            spaceAfter=6
+        )
+    }
+
     elements = []
 
     # 标题与基础信息
-    elements.append(Paragraph("工厂流程审核报告", styles['Heading1']))
+    elements.append(Paragraph("工厂流程审核报告", chinese_styles['Heading1']))
     factory_name = next(f['name'] for f in db.factories if f['id'] == evaluation['factory_id'])
     elements.extend([
-        Paragraph(f"工厂名称：{factory_name}", styles['Normal']),
-        Paragraph(f"评估日期：{evaluation['eval_date']}", styles['Normal']),
-        Paragraph(f"评估人员：{evaluation['evaluator']}", styles['Normal']),
+        Paragraph(f"工厂名称：{factory_name}", chinese_styles['Normal']),
+        Paragraph(f"评估日期：{evaluation['eval_date']}", chinese_styles['Normal']),
+        Paragraph(f"评估人员：{evaluation['evaluator']}", chinese_styles['Normal']),
         Spacer(1, 12)
     ])
 
     # 问题汇总
-    elements.append(Paragraph("一、存在问题汇总", styles['Heading2']))
+    elements.append(Paragraph("一、存在问题汇总", chinese_styles['Heading2']))
+    has_problems = False
     for mod_name in evaluation['selected_modules']:
         mod = db.modules[mod_name]
         for sub_name, sub_mod in mod['sub_modules'].items():
             for item in sub_mod['items']:
                 res = evaluation['results'].get(item['id'], {})
                 if not res.get('is_checked', False):
-                    elements.append(Paragraph(f"【{mod_name}-{sub_name}】{item['name']}", styles['Normal']))
+                    has_problems = True
+                    elements.append(Paragraph(f"【{mod_name}-{sub_name}】{item['name']}", chinese_styles['Normal']))
                     if res.get('details'):
-                        elements.append(Paragraph(f"问题详情：{', '.join(res['details'])}", styles['Normal']))
+                        elements.append(Paragraph(f"问题详情：{', '.join(res['details'])}", chinese_styles['Normal']))
                     if item['comment']:
-                        elements.append(Paragraph(f"改进建议：{item['comment']}", styles['Normal']))
+                        elements.append(Paragraph(f"改进建议：{item['comment']}", chinese_styles['Normal']))
                     elements.append(Spacer(1, 6))
+    
+    if not has_problems:
+        elements.append(Paragraph("本次评估未发现问题", chinese_styles['Normal']))
+        elements.append(Spacer(1, 6))
 
     # 评估评论
-    elements.append(Paragraph("二、评估者评论", styles['Heading2']))
-    elements.append(Paragraph(evaluation['comments'], styles['Normal']))
+    elements.append(Paragraph("二、评估者评论", chinese_styles['Heading2']))
+    if evaluation['comments']:
+        elements.append(Paragraph(evaluation['comments'], chinese_styles['Normal']))
+    else:
+        elements.append(Paragraph("无评论", chinese_styles['Normal']))
+    
     doc.build(elements)
     buffer.seek(0)
     return buffer
