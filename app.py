@@ -178,7 +178,8 @@ def generate_pdf(evaluation):
             parent=styles['Heading1'],
             fontName=CHINESE_FONT,
             fontSize=18,
-            spaceAfter=20
+            spaceAfter=20,
+            alignment=1  # 1 表示居中
         ),
         'Heading2': ParagraphStyle(
             'CustomHeading2',
@@ -193,43 +194,78 @@ def generate_pdf(evaluation):
             fontName=CHINESE_FONT,
             fontSize=12,
             spaceAfter=6
+        ),
+        'TotalScore': ParagraphStyle(
+            'CustomTotalScore',
+            parent=styles['Normal'],
+            fontName=CHINESE_FONT,
+            fontSize=14,
+            spaceAfter=12,
+            textColor='red'  # 红色
         )
     }
 
     elements = []
 
-    # 标题与基础信息
+    # 1. 标题居中
     elements.append(Paragraph("工厂流程审核报告", chinese_styles['Heading1']))
     factory_name = next(f['name'] for f in db.factories if f['id'] == evaluation['factory_id'])
     elements.extend([
         Paragraph(f"工厂名称：{factory_name}", chinese_styles['Normal']),
         Paragraph(f"评估日期：{evaluation['eval_date']}", chinese_styles['Normal']),
         Paragraph(f"评估人员：{evaluation['evaluator']}", chinese_styles['Normal']),
+        # 2. 工厂总分，加大加红
+        Paragraph(f"工厂总分：{evaluation['overall_percent']:.2f}%", chinese_styles['TotalScore']),
         Spacer(1, 12)
     ])
 
-    # 问题汇总
+    # 3. 问题汇总：分重点工序和其他工序
     elements.append(Paragraph("一、存在问题汇总", chinese_styles['Heading2']))
-    has_problems = False
+    elements.append(Paragraph("经评估，请该工厂注意以下方面：", chinese_styles['Normal']))
+    
+    # 先把问题分成重点项和非重点项
+    key_items = []
+    other_items = []
+    
     for mod_name in evaluation['selected_modules']:
         mod = db.modules[mod_name]
         for sub_name, sub_mod in mod['sub_modules'].items():
             for item in sub_mod['items']:
                 res = evaluation['results'].get(item['id'], {})
                 if not res.get('is_checked', False):
-                    has_problems = True
-                    elements.append(Paragraph(f"【{mod_name}-{sub_name}】{item['name']}", chinese_styles['Normal']))
+                    # 构造条目文本
+                    item_text = f"【{mod_name}-{sub_name}】{item['name']}"
                     if res.get('details'):
-                        elements.append(Paragraph(f"问题详情：{', '.join(res['details'])}", chinese_styles['Normal']))
+                        item_text += f"（问题详情：{', '.join(res['details'])}）"
                     if item['comment']:
-                        elements.append(Paragraph(f"改进建议：{item['comment']}", chinese_styles['Normal']))
-                    elements.append(Spacer(1, 6))
-    
-    if not has_problems:
-        elements.append(Paragraph("本次评估未发现问题", chinese_styles['Normal']))
+                        item_text += f" 改进建议：{item['comment']}"
+                    
+                    if item.get('is_key', False):
+                        key_items.append(item_text)
+                    else:
+                        other_items.append(item_text)
+
+    # （一）重点工序
+    if key_items:
+        elements.append(Paragraph("（一）重点工序", chinese_styles['Normal']))
+        for i, text in enumerate(key_items, 1):
+            elements.append(Paragraph(f"{i}. {text}", chinese_styles['Normal']))
+            elements.append(Spacer(1, 6))
+    else:
+        elements.append(Paragraph("（一）重点工序：本次评估未发现重点工序问题", chinese_styles['Normal']))
         elements.append(Spacer(1, 6))
 
-    # 评估评论
+    # （二）其他工序
+    if other_items:
+        elements.append(Paragraph("（二）其他工序", chinese_styles['Normal']))
+        for i, text in enumerate(other_items, 1):
+            elements.append(Paragraph(f"{i}. {text}", chinese_styles['Normal']))
+            elements.append(Spacer(1, 6))
+    else:
+        elements.append(Paragraph("（二）其他工序：本次评估未发现其他工序问题", chinese_styles['Normal']))
+        elements.append(Spacer(1, 6))
+
+    # 4. 评估者评论（保持不变）
     elements.append(Paragraph("二、评估者评论", chinese_styles['Heading2']))
     if evaluation['comments']:
         elements.append(Paragraph(evaluation['comments'], chinese_styles['Normal']))
