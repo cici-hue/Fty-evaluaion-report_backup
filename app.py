@@ -198,7 +198,7 @@ def generate_pdf(evaluation):
         'TotalScore': ParagraphStyle(
             'CustomTotalScore',
             parent=styles['Normal'],
-            fontName=CHINESE_FONT,  # 只保留一个fontName定义
+            fontName=CHINESE_FONT,
             fontSize=16,  # 字体加大
             spaceAfter=12,
             textColor='red',  # 红色
@@ -210,7 +210,7 @@ def generate_pdf(evaluation):
             fontName=CHINESE_FONT,
             fontSize=12,
             spaceAfter=6,
-            textColor='red'  # 重点工序文字红色
+            textColor='#FF8C00'  # 橙色（也可以用'orange'）
         )
     }
 
@@ -254,7 +254,7 @@ def generate_pdf(evaluation):
                     else:
                         other_items.append(item_text)
 
-    # （一）重点工序（标题+内容都红色）
+    # （一）重点工序（标题+内容都橙色）
     if key_items:
         elements.append(Paragraph("（一）重点工序", chinese_styles['KeyProcess']))
         for i, text in enumerate(key_items, 1):
