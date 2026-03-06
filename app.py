@@ -796,7 +796,7 @@ def start_evaluation(current_user_id):
         )
 
 # ==================== 数据分析看板 ====================
-def show_data_analysis():
+def show_data_analysis(evals_to_show):
     st.header("📊 工厂数据深度看板")
     
     # 1. 基础数据检查
@@ -923,7 +923,7 @@ def login():
         st.stop()
 
 # ==================== 历史记录 ====================
-def show_history():
+def show_history(evals_to_show):
     st.subheader("历史记录")
     if not db.evaluations:
         st.info("暂无记录")
