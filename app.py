@@ -173,12 +173,12 @@ class DataStore:
                             {"id": "pp2_1", "name": "① 客户确认样", "score": 1, "is_key": False, "details": [], "comment": ""},
                             {"id": "pp2_2", "name": "② 确认意见，明确客户要求", "score": 1, "is_key": False, "details": [], "comment": ""},
                             {"id": "pp2_3", "name": "③ 试生产样（客户确认码，最小码及最大码）和封样", "score": 3, "is_key": True, "details": ["无客户确认码", "无最大码", "无最小码", "无封样"], "comment": "做最小码和最大码衣服，可提前预知大货可能出现的问题"},
-                            {"id": "pp2_4_a", "name": "④ a. 重点工序难点（制作领子，门襟等小样）及解决方案", "score": 1, "is_key": False, "details": [], "comment": "给车间生产员工一个质量标准参照"},
-                            {"id": "pp2_4_b", "name": "④ b. 试生产样的外观/尺寸/克重/试身的问题及解决方案", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "pp2_4_c", "name": "④ c. 对条对格，花型定位等要求", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "pp2_4_d", "name": "④ d. 特别关注撕裂强度的缝制工艺的风险", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "pp2_4_e", "name": "④ e. 特别关注粘衬环节的风险（颜色差异，透胶，粘衬颜色）", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "pp2_4_f", "name": "④ f. 轻薄产品包装方法风险评估（皱，滑落等）", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "pp2_4_a", "name": "④ 工艺单需覆盖以下内容 a. 重点工序难点（制作领子，门襟等小样）及解决方案", "score": 1, "is_key": False, "details": [], "comment": "给车间生产员工一个质量标准参照"},
+                            {"id": "pp2_4_b", "name": "⑤ 工艺单需覆盖以下内容 b. 试生产样的外观/尺寸/克重/试身的问题及解决方案", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "pp2_4_c", "name": "⑥ 工艺单需覆盖以下内容 c. 对条对格，花型定位等要求", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "pp2_4_d", "name": "⑦ 工艺单需覆盖以下内容 d. 特别关注撕裂强度的缝制工艺的风险", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "pp2_4_e", "name": "⑧ 工艺单需覆盖以下内容 e. 特别关注粘衬环节的风险（颜色差异，透胶，粘衬颜色）", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "pp2_4_f", "name": "⑨ 工艺单需覆盖以下内容 f. 轻薄产品包装方法风险评估（皱，滑落等）", "score": 1, "is_key": False, "details": [], "comment": ""},
                         ]
                     },
                     "3. 技术难点分析": {
@@ -255,15 +255,15 @@ class DataStore:
                     },
                     "2. 点位及小烫": {
                         "items": [
-                            {"id": "s2_1", "name": "① 禁止使用高温消色笔", "score": 3, "is_key": True, "details": [], "comment": "高温消色笔在低温（零下）会显现出来"},
-                            {"id": "s2_2", "name": "② 核查丝缕方向是否与纸样标注的方向一致", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "s2_3", "name": "③ 点位前确保裁片和纸样吻合，避免偏移", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "s2_4", "name": "④ 烫台用白布包裹及台面干净整洁，定期更换", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "s2_5", "name": "⑤ 烫斗温度和面料匹配（建议真丝面料低于110度）", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "s2_6", "name": "⑥ 烫工的操作手法是否正确（见指南）", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "s2_7", "name": "⑦ 查验是否有激光印/透胶", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "s2_8", "name": "⑧ 查验是否变型/变色", "score": 1, "is_key": False, "details": [], "comment": ""},
-                            {"id": "s2_9", "name": "⑨ 查验粘衬牢固度", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "s2_1", "name": "① 点位工序要点 a. 禁止使用高温消色笔", "score": 3, "is_key": True, "details": [], "comment": "高温消色笔在低温（零下）会显现出来"},
+                            {"id": "s2_2", "name": "② 点位工序要点 b. 核查丝缕方向是否与纸样标注的方向一致", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "s2_3", "name": "③ 点位工序要点 c. 点位前确保裁片和纸样吻合，避免偏移", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "s2_4", "name": "④ 小烫工序要点 a. 烫台用白布包裹及台面干净整洁，定期更换", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "s2_5", "name": "⑤ 小烫工序要点 b.烫斗温度和面料匹配（建议真丝面料低于110度）", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "s2_6", "name": "⑥ 小烫工序要点 c.烫工的操作手法是否正确（见指南）", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "s2_7", "name": "⑦ 查验 a. 查验是否有激光印/透胶", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "s2_8", "name": "⑧ 查验 b. 查验是否变型/变色", "score": 1, "is_key": False, "details": [], "comment": ""},
+                            {"id": "s2_9", "name": "⑨ 查验 c. 查验粘衬牢固度", "score": 1, "is_key": False, "details": [], "comment": ""},
                         ]
                     },
                     "3. 缝制中": {
