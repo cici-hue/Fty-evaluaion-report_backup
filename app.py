@@ -923,9 +923,9 @@ def login():
         st.stop()
 
 def show_admin_panel():
-    st.header("⚙️ 系统管理 (SAdmin)")
+    st.header("⚙️ 系统管理")
     
-    tab1, tab2, tab3 = st.tabs(["工厂管理", "记录维护", "系统配置"])
+    tab1, tab2 = st.tabs(["工厂管理", "记录维护"])
     
     with tab1:
         st.subheader("编辑工厂名单")
@@ -954,14 +954,14 @@ def show_admin_panel():
                 st.warning(f"已删除：{target.get('eval_date')} - {target.get('evaluator_id')} 的评估")
                 st.rerun()
 
-    with tab3:
-        st.subheader("危险操作")
-        if st.button("🚨 清空数据库", help="删除所有 JSON 里的评估记录"):
-            if st.checkbox("确认清空？"):
-                db.evaluations = []
-                db.save_evaluations()
-                st.success("数据已全部抹除")
-                st.rerun()
+    # with tab3:
+    #     st.subheader("危险操作")
+    #     if st.button("🚨 清空数据库", help="删除所有 JSON 里的评估记录"):
+    #         if st.checkbox("确认清空？"):
+    #             db.evaluations = []
+    #             db.save_evaluations()
+    #             st.success("数据已全部抹除")
+    #             st.rerun()
 
 # ==================== 历史记录 ====================
 def show_history(evals_to_show):
