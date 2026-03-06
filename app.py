@@ -437,6 +437,7 @@ def generate_pdf(evaluation):
         Paragraph(f"工厂名称：{factory_name}", chinese_styles['Normal']),
         Paragraph(f"评估日期：{evaluation['eval_date']}", chinese_styles['Normal']),
         Paragraph(f"评估人员：{evaluation['evaluator']}", chinese_styles['Normal']),
+        Paragraph(f"审核性质：{evaluation.get('eval_type', '未记录')}", chinese_styles['Normal']), # 新增行
         Paragraph(f"工厂总分：{evaluation['overall_percent']:.2f}%", chinese_styles['TotalScore']),
         Spacer(1, 12)
     ])
