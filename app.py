@@ -328,76 +328,77 @@ def start_evaluation():
         return
 
     # --- 2. 状态初始化 ---
-    all_item_ids = []
-    for mod_name in selected_modules:
-        for sub_mod in db.modules[mod_name]['sub_modules'].values():
-            for it in sub_mod['items']:
-                all_item_ids.append(it['id'])
-
     if 'eval_results' not in st.session_state:
         st.session_state.eval_results = {}
     
-    for it_id in all_item_ids:
-        if it_id not in st.session_state.eval_results:
-            st.session_state.eval_results[it_id] = {"is_checked": False, "details": [], "image_path": None}
+    # 预初始化所有项的状态
+    for mod_name in selected_modules:
+        for sub_mod in db.modules[mod_name]['sub_modules'].values():
+            for it in sub_mod['items']:
+                if it['id'] not in st.session_state.eval_results:
+                    st.session_state.eval_results[it['id']] = {"is_checked": False, "details": [], "image_path": None}
 
     # 一键操作
     col_a, col_b, _ = st.columns([1, 1, 6])
     with col_a:
         if st.button("✅ 一键全选"):
-            for it_id in all_item_ids:
-                st.session_state.eval_results[it_id]["is_checked"] = True
-                st.session_state[f"chk_{it_id}"] = True
+            for mod_name in selected_modules:
+                for sub in db.modules[mod_name]['sub_modules'].values():
+                    for it in sub['items']:
+                        st.session_state.eval_results[it['id']]["is_checked"] = True
+                        st.session_state[f"chk_{it['id']}"] = True
             st.rerun()
     with col_b:
         if st.button("❌ 一键清空"):
-            for it_id in all_item_ids:
-                st.session_state.eval_results[it_id]["is_checked"] = False
-                st.session_state[f"chk_{it_id}"] = False
+            for mod_name in selected_modules:
+                for sub in db.modules[mod_name]['sub_modules'].values():
+                    for it in sub['items']:
+                        st.session_state.eval_results[it['id']]["is_checked"] = False
+                        st.session_state[f"chk_{it['id']}"] = False
             st.rerun()
 
     st.divider()
 
-    # --- 3. 核心评分循环（即时百分比逻辑） ---
+    # --- 3. 核心评分循环 ---
     total_system_earned = 0
 
     for mod_name in selected_modules:
         mod_data = db.modules[mod_name]
         
-        # A. 计算该模块的即时得分
+        # 计算模块即时百分比
         mod_earned = 0
         mod_possible = mod_data['total_score']
         for sub in mod_data['sub_modules'].values():
             for it in sub['items']:
                 if st.session_state.get(f"chk_{it['id']}", False):
                     mod_earned += it['score']
-        
         mod_percent = (mod_earned / mod_possible * 100) if mod_possible > 0 else 0
         total_system_earned += mod_earned
 
-        # B. 渲染模块级收起框
+        # 模块级折叠框（默认展开）
         with st.expander(f"📦 {mod_name} (得分率: {mod_percent:.1f}%)", expanded=True):
             
             for sub_name, sub_mod in mod_data['sub_modules'].items():
-                # C. 计算子项的即时得分
+                # 计算子项即时百分比
                 sub_earned = sum(it['score'] for it in sub_mod['items'] if st.session_state.get(f"chk_{it['id']}", False))
                 sub_possible = sum(it['score'] for it in sub_mod['items'])
                 sub_percent = (sub_earned / sub_possible * 100) if sub_possible > 0 else 0
 
-                # D. 渲染子项级收起框 (新增功能：子项也可收起)
-                with st.expander(f"🔹 {sub_name} (完成度: {sub_percent:.1f}%)", expanded=False):
+                # 【修复核心】：增加 key 参数，让 Streamlit 记住该子项折叠框的状态
+                # expanded=False 仅作为“第一次进入页面”时的初始状态
+                sub_expander_key = f"exp_{factory_id}_{mod_name}_{sub_name}"
+                with st.expander(f"🔹 {sub_name} (完成度: {sub_percent:.1f}%)", expanded=False, key=sub_expander_key):
                     for it in sub_mod['items']:
                         it_id = it['id']
                         c1, c2, c3 = st.columns([0.65, 0.2, 0.15])
                         
                         with c1:
-                            # 关键项及文字颜色处理 (不显示单项分数)
                             label = f":orange[{it['name']} (关键项)]" if it.get('is_key') else it['name']
+                            # 使用 key 绑定 checkbox 状态
                             is_checked = st.checkbox(label, key=f"chk_{it_id}")
                             st.session_state.eval_results[it_id]['is_checked'] = is_checked
 
                         with c2:
-                            # 拍照上传气泡
                             with st.popover("📸 拍照上传"):
                                 img_file = st.file_uploader("拍照", type=['jpg','png','jpeg'], key=f"up_{it_id}", label_visibility="collapsed")
                                 if img_file:
@@ -410,7 +411,6 @@ def start_evaluation():
                                     st.rerun()
 
                         with c3:
-                            # 预览/大图/删除
                             img_path = st.session_state.eval_results[it_id].get('image_path')
                             if img_path and os.path.exists(img_path):
                                 st.image(img_path, width=40)
@@ -423,7 +423,6 @@ def start_evaluation():
                                         st.session_state.eval_results[it_id]['image_path'] = None
                                         st.rerun()
 
-                        # 不符合项录入
                         if not is_checked:
                             if it['details']:
                                 st.session_state.eval_results[it_id]['details'] = st.multiselect(
@@ -438,11 +437,7 @@ def start_evaluation():
     # --- 4. 总结与保存 ---
     st.subheader("评估汇总")
     overall_percent = (total_system_earned / db.total_system_score * 100) if db.total_system_score else 0
-    
-    col_score, col_save = st.columns([1, 1])
-    with col_score:
-        st.metric("系统总得分率", f"{overall_percent:.2f}%")
-    
+    st.metric("系统总得分率", f"{overall_percent:.2f}%")
     comments = st.text_area("综合评估意见", height=80)
 
     if st.button("💾 提交并生成报告", type="primary", use_container_width=True):
