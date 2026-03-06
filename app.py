@@ -57,41 +57,51 @@ if not os.path.exists(MEDIA_DIR):
 # ==================== 评分体系数据模型 ====================
 class DataStore:
     def __init__(self):
-        self.users = self._load_users_from_csv()
+        # 1. 工厂列表（后续可以移到 json 文件实现动态增删）
         self.factories = [{"id": 1, "name": "深圳XX服装厂"}, {"id": 2, "name": "广州XX制衣厂"}]
+        
+        # 2. 评分模块初始化
         self.modules = self._init_modules()
+        
+        # 3. 加载历史评估数据
         self.evaluations = self._load_evaluations()
+        
+        # 系统总分
         self.total_system_score = 177
-   
-    def _load_users_from_csv(self):
-        # 自动根据你的 Book1.csv 生成用户字典
-        # 格式：{ "email": {"name": "Martin Zhang", "role": "user", "pwd": "email123"} }
-        try:
-            df = pd.read_csv("Book1.xlsx - Sheet1.csv")
-            user_dict = {}
-            for _, row in df.iterrows():
-                email = row['email'].strip()
-                user_dict[email] = {
-                    "name": row['name'],
-                    "role": "user",
-                    "password": f"{email}123"
-                }
-            # 手动添加管理员
-            user_dict["admin"] = {"name": "管理员", "role": "admin", "password": "admin123"}
-            user_dict["sadmin"] = {"name": "高级管理员", "role": "sadmin", "password": "sadmin123"}
-            return user_dict
-        except:
-            st.error("无法加载评估员列表文件")
-            return {}
 
-    def get_evaluations_by_user(self, user_email, role):
-        # 核心过滤逻辑：如果是 user，只返回 evaluator == user_email 的数据
+    def verify_user(self, email, password):
+        """
+        核心验证逻辑：从 Streamlit Secrets 读取数据
+        """
+        # A. 验证管理员 (从 secrets 的 [passwords] 部分读取)
+        admin_pwds = st.secrets.get("passwords", {})
+        if email in admin_pwds:
+            if password == admin_pwds[email]:
+                role_name = "高级管理员" if email == "sadmin" else "管理员"
+                return {"name": role_name, "role": email}
+        
+        # B. 验证普通评估员 (从 secrets 的 [evaluators] 部分读取)
+        evaluators = st.secrets.get("evaluators", {})
+        if email in evaluators:
+            # 规则：密码是 账号 + 123
+            correct_pwd = f"{email}123"
+            if password == correct_pwd:
+                return {"name": evaluators[email], "role": "user"}
+        
+        return None
+
+    def get_evaluations_by_user(self, user_id, role):
+        """
+        权限过滤逻辑：
+        - 如果是 admin 或 sadmin，返回所有评估记录
+        - 如果是普通 user，只返回 evaluator_id 等于自己账号的记录
+        """
         if role in ["admin", "sadmin"]:
             return self.evaluations
-        return [e for e in self.evaluations if e.get('evaluator_id') == user_email]
-   
+        return [e for e in self.evaluations if e.get('evaluator_id') == user_id]
+
     def get_item_score(self, item_id):
-        """根据ID在配置中查找该项对应的原始分值"""
+        """数据分析辅助函数：根据ID获取小项分值"""
         for mod in self.modules.values():
             for sub in mod['sub_modules'].values():
                 for it in sub['items']:
@@ -769,6 +779,7 @@ def start_evaluation():
             "factory_id": factory_id,
             "evaluator": evaluator,
             "eval_date": eval_date.strftime("%Y-%m-%d"),
+            "evaluator_id": st.session_state.user_id, # <--- 记录是谁提交的
             "eval_type": eval_type,
             "selected_modules": selected_modules,
             "overall_percent": overall_percent,
@@ -894,23 +905,22 @@ def login():
         st.session_state.logged_in = False
 
     if not st.session_state.logged_in:
-        with st.container():
-            st.title("🔒 质量评估系统登录")
-            user_input = st.text_input("账号 (邮箱)")
-            pwd_input = st.text_input("密码", type="password")
-            
-            if st.button("登录", type="primary"):
-                users = db.users
-                if user_input in users and users[user_input]['password'] == pwd_input:
-                    st.session_state.logged_in = True
-                    st.session_state.user_id = user_input
-                    st.session_state.user_name = users[user_input]['name']
-                    st.session_state.role = users[user_input]['role']
-                    st.success(f"欢迎回来, {st.session_state.user_name}!")
-                    st.rerun()
-                else:
-                    st.error("账号或密码错误")
-        st.stop() # 未登录则停止运行后续代码
+        st.title("🔒 质量评估系统登录")
+        user_input = st.text_input("账号 (Email/Admin)")
+        pwd_input = st.text_input("密码", type="password")
+        
+        if st.button("登录", type="primary"):
+            user_info = db.verify_user(user_input, pwd_input)
+            if user_info:
+                st.session_state.logged_in = True
+                st.session_state.user_id = user_input
+                st.session_state.user_name = user_info['name']
+                st.session_state.role = user_info['role']
+                st.success("登录成功！")
+                st.rerun()
+            else:
+                st.error("❌ 账号或密码不正确")
+        st.stop()
 
 # ==================== 历史记录 ====================
 def show_history():
