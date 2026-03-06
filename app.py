@@ -780,8 +780,8 @@ def show_data_analysis():
     # --- 图表 1：健康趋势图 ---
     st.subheader("📈 工厂健康趋势 (近半年得分)")
     if not f_df.empty:
-        fig_line = px.line(f_df, x='eval_date', y='overall_percent', markers=True,
-                          title=f"{factory_map[selected_f_id]} 得分走走势")
+        fig_line = px.line(f_df, x="评估日期", y="总分", markers=True,
+                          title=f"{factory_map[selected_f_id]} 得分趋势")
         fig_line.update_yaxes(range=[0, 105])
         st.plotly_chart(fig_line, use_container_width=True)
 
