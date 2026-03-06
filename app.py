@@ -704,38 +704,38 @@ def start_evaluation():
         
     comments = st.text_area("综合评估意见", height=80)
 
-     if st.button("保存并生成报告", type="primary"):
-
+    if st.button("保存并生成报告", type="primary"):
+        # 1. 构造评估数据对象
         ev_data = {
-
             "factory_id": factory_id,
-
             "evaluator": evaluator,
-
             "eval_date": eval_date.strftime("%Y-%m-%d"),
-
             "eval_type": eval_type,
-
             "selected_modules": selected_modules,
-
             "overall_percent": overall_percent,
-
             "results": st.session_state.eval_results,
-
             "comments": comments
-
         }
+        
+        # 2. 调用 DataStore 类中的 add_evaluation 方法
+        # 这个方法内部会自动执行 self._save_evaluations() 将数据写入 evaluations.json
+        saved_record = db.add_evaluation(ev_data) 
+        
+        st.success(f"✅ 评估数据已成功保存至 {DATA_DIR}/evaluations.json")
 
-        saved = db.add_evaluation(ev_data)
+        # 3. 立即生成 PDF 文件流
+        # generate_pdf 函数会返回一个 BytesIO 内存流
+        pdf_buf = generate_pdf(saved_record) 
+        
+        # 4. 显示下载按钮
+        st.download_button(
+            label="📥 下载评估报告 (PDF)",
+            data=pdf_buf,
+            file_name=f"工厂评估报告_{saved_record['id']}_{eval_date}.pdf",
+            mime="application/pdf"
+        )
 
-        st.success("保存成功！")
-
-        pdf_buf = generate_pdf(saved)
-
-        st.download_button("📥 下载PDF", pdf_buf, f"评估报告_{saved['id']}.pdf")
-
-
-
+        # 5. 清理状态（可选，如果你希望下载完后重置界面）
         del st.session_state.eval_results
 # ==================== 历史记录 ====================
 def show_history():
