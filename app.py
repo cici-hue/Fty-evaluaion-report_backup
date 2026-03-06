@@ -307,7 +307,7 @@ def start_evaluation():
     inject_custom_css()
     st.subheader("工厂流程评估")
 
-    # 定义系统固定总分
+    # 定义系统固定总分分母
     SYSTEM_TOTAL_FIXED = 177
 
     # --- 1. 基础配置 ---
@@ -338,7 +338,7 @@ def start_evaluation():
                 if it['id'] not in st.session_state.eval_results:
                     st.session_state.eval_results[it['id']] = {"is_checked": False, "details": [], "image_path": None}
 
-    # 一键操作逻辑保持不变
+    # 一键操作逻辑
     col_a, col_b, _ = st.columns([1, 1, 6])
     with col_a:
         if st.button("✅ 一键全选"):
@@ -365,31 +365,31 @@ def start_evaluation():
     for mod_name in selected_modules:
         mod_data = db.modules[mod_name]
         
-        # 计算该模块实时得分
+        # 计算该模块实时总分
         mod_earned = 0
         for sub in mod_data['sub_modules'].values():
             mod_earned += sum(it['score'] for it in sub['items'] if st.session_state.get(f"chk_{it['id']}", False))
         
-        mod_score_ratio = (mod_earned / SYSTEM_TOTAL_FIXED * 100)
+        # 换算百分比 (基于177)
+        mod_score_percent = (mod_earned / SYSTEM_TOTAL_FIXED * 100)
         total_system_earned += mod_earned
 
-        # 模块层：静态标题
+        # 模块层：静态标题，防止勾选后自动收起
         with st.expander(f"📦 模块：{mod_name}", expanded=True):
-            # 内部第一行显示：模块得分 (当前模块分/177)
-            st.write(f"**模块得分: :blue[{mod_earned} / {SYSTEM_TOTAL_FIXED} ({mod_score_ratio:.1f}%)]**")
-            st.progress(min(mod_score_ratio / 100, 1.0))
+            # 仅显示百分比
+            st.write(f"**模块得分: :blue[{mod_score_percent:.1f}%]**")
             
             for sub_name, sub_mod in mod_data['sub_modules'].items():
-                # 计算子项实时得分
+                # 计算子项实时总分
                 sub_earned = sum(it['score'] for it in sub_mod['items'] if st.session_state.get(f"chk_{it['id']}", False))
-                sub_score_ratio = (sub_earned / SYSTEM_TOTAL_FIXED * 100)
+                # 换算百分比 (基于177)
+                sub_score_percent = (sub_earned / SYSTEM_TOTAL_FIXED * 100)
 
-                # 子项层：使用固定 Key 保证状态持久
+                # 子项层：使用固定 Key 锁定展开状态
                 sub_key = f"exp_{factory_id}_{mod_name}_{sub_name}"
                 with st.expander(f"🔹 {sub_name}", expanded=False, key=sub_key):
-                    # 内部显示：子项得分 (当前子项分/177)
-                    st.write(f"**子项得分: :green[{sub_earned} / {SYSTEM_TOTAL_FIXED} ({sub_score_ratio:.1f}%)]**")
-                    st.progress(min(sub_score_ratio / 100, 1.0))
+                    # 仅显示百分比
+                    st.write(f"**子项得分: :green[{sub_score_percent:.1f}%]**")
                     st.write("") 
 
                     for it in sub_mod['items']:
@@ -397,7 +397,7 @@ def start_evaluation():
                         c1, c2, c3 = st.columns([0.65, 0.2, 0.15])
                         
                         with c1:
-                            # 关键项全橙色
+                            # 关键项全橙色 (包括文字和括号)
                             label = f":orange[{it['name']} (关键项)]" if it.get('is_key') else it['name']
                             is_checked = st.checkbox(label, key=f"chk_{it_id}")
                             st.session_state.eval_results[it_id]['is_checked'] = is_checked
@@ -441,17 +441,22 @@ def start_evaluation():
     # --- 4. 总结区 ---
     st.subheader("评估汇总")
     overall_percent = (total_system_earned / SYSTEM_TOTAL_FIXED * 100)
-    st.metric("总得分率 (基于177分制)", f"{overall_percent:.2f}%", help="当前勾选项得分总和 / 177")
+    st.metric("总得分率", f"{overall_percent:.2f}%")
     comments = st.text_area("综合评估意见", height=80)
 
     if st.button("💾 保存并生成报告", type="primary", use_container_width=True):
         ev_data = {
-            "factory_id": factory_id, "evaluator": evaluator, "eval_date": eval_date.strftime("%Y-%m-%d"),
-            "eval_type": eval_type, "selected_modules": selected_modules, "overall_percent": overall_percent,
-            "results": st.session_state.eval_results, "comments": comments
+            "factory_id": factory_id, 
+            "evaluator": evaluator, 
+            "eval_date": eval_date.strftime("%Y-%m-%d"),
+            "eval_type": eval_type, 
+            "selected_modules": selected_modules, 
+            "overall_percent": overall_percent,
+            "results": st.session_state.eval_results, 
+            "comments": comments
         }
         saved = db.add_evaluation(ev_data)
-        st.success(f"评估已保存！总分：{total_system_earned} / {SYSTEM_TOTAL_FIXED}")
+        st.success(f"保存成功！当前总得分率：{overall_percent:.2f}%")
 # ==================== 历史记录 ====================
 def show_history():
     st.subheader("历史记录")
