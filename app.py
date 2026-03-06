@@ -580,7 +580,7 @@ def main():
 
 # ==================== 核心评估页面（一键全选/清空 修复版） ====================
 # ==================== 核心评估页面（优化版：拍照/缩略图/大图） ====================
-def start_evaluation():
+def start_evaluation(current_user_id):
     inject_custom_css()
     st.subheader("欢迎回来，评估员")
 
