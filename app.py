@@ -973,12 +973,11 @@ def main():
     elif "历史记录" in choice:
         show_history(filtered_evals)
     elif "系统管理" in choice:
-        show_admin_panel()
+        show_admin_panel() 
 
-    # 6. 退出按钮
-    st.sidebar.divider()
-    if st.sidebar.button("退出登录"):
-        st.session_state.clear() # 清空所有状态
+    # 5. 退出登录按钮放在最底部
+    if st.sidebar.button("🚪 退出登录", use_container_width=True):
+        st.session_state.clear()
         st.rerun()
 
 if __name__ == "__main__":
