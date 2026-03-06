@@ -28,12 +28,10 @@ def inject_custom_css():
         [data-testid="stFileUploadDropzone"] div div { display: none !important; }
         [data-testid="stFileUploadDropzone"] { padding: 0px !important; min-height: 45px !important; border: 1px dashed #ccc; }
         .stPopover [data-testid="stBaseButton-secondary"] { width: 100%; }
-        /* 紧凑型布局调整 */
         [data-testid="stExpander"] [data-testid="stVerticalBlock"] { gap: 0.2rem !important; }
         hr { margin: 0.4rem 0 !important; }
         </style>
     """, unsafe_allow_html=True)
-    
 # ==================== 字体配置 - 使用上传的SimSun.ttf ====================
 def setup_chinese_font():
     font_path = os.path.join(os.path.dirname(__file__), "SimSun.ttf")
