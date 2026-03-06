@@ -329,7 +329,6 @@ def start_evaluation():
     if 'eval_results' not in st.session_state:
         st.session_state.eval_results = {}
     
-    # 预初始化所有项的状态
     for mod_name in selected_modules:
         for sub_mod in db.modules[mod_name]['sub_modules'].values():
             for it in sub_mod['items']:
@@ -357,42 +356,44 @@ def start_evaluation():
 
     st.divider()
 
-    # --- 3. 核心评分循环 ---
+    # --- 3. 评分循环（解决自动收起逻辑） ---
     total_system_earned = 0
 
     for mod_name in selected_modules:
         mod_data = db.modules[mod_name]
         
-        # 计算模块即时百分比
+        # 计算模块分数
         mod_earned = 0
-        mod_possible = mod_data['total_score']
         for sub in mod_data['sub_modules'].values():
-            for it in sub['items']:
-                if st.session_state.get(f"chk_{it['id']}", False):
-                    mod_earned += it['score']
-        mod_percent = (mod_earned / mod_possible * 100) if mod_possible > 0 else 0
+            mod_earned += sum(it['score'] for it in sub['items'] if st.session_state.get(f"chk_{it['id']}", False))
+        mod_percent = (mod_earned / mod_data['total_score'] * 100) if mod_data['total_score'] > 0 else 0
         total_system_earned += mod_earned
 
-        # 模块级折叠框（默认展开）
-        with st.expander(f"📦 {mod_name} (得分率: {mod_percent:.1f}%)", expanded=True):
+        # 【重点1】模块标题保持静态，百分比放在内部第一行
+        with st.expander(f"📦 模块：{mod_name}", expanded=True):
+            st.write(f"**该模块当前得分率: :blue[{mod_percent:.1f}%]**")
+            st.progress(mod_percent / 100)
             
             for sub_name, sub_mod in mod_data['sub_modules'].items():
-                # 计算子项即时百分比
+                # 计算子项分数
                 sub_earned = sum(it['score'] for it in sub_mod['items'] if st.session_state.get(f"chk_{it['id']}", False))
                 sub_possible = sum(it['score'] for it in sub_mod['items'])
                 sub_percent = (sub_earned / sub_possible * 100) if sub_possible > 0 else 0
 
-                # 【修复核心】：增加 key 参数，让 Streamlit 记住该子项折叠框的状态
-                # expanded=False 仅作为“第一次进入页面”时的初始状态
-                sub_expander_key = f"exp_{factory_id}_{mod_name}_{sub_name}"
-                with st.expander(f"🔹 {sub_name} (完成度: {sub_percent:.1f}%)", expanded=False, key=sub_expander_key):
+                # 【重点2】子项标题保持静态（🔹 名称），防止点击复选框后自动收起
+                # 使用固定 key 确保状态持久
+                sub_key = f"exp_{mod_name}_{sub_name}"
+                with st.expander(f"🔹 {sub_name}", expanded=False, key=sub_key):
+                    # 在展开后的第一行显示百分比
+                    st.write(f"当前完成度: :green[{sub_percent:.1f}%]")
+                    
                     for it in sub_mod['items']:
                         it_id = it['id']
                         c1, c2, c3 = st.columns([0.65, 0.2, 0.15])
                         
                         with c1:
+                            # 关键项全橙色显示
                             label = f":orange[{it['name']} (关键项)]" if it.get('is_key') else it['name']
-                            # 使用 key 绑定 checkbox 状态
                             is_checked = st.checkbox(label, key=f"chk_{it_id}")
                             st.session_state.eval_results[it_id]['is_checked'] = is_checked
 
@@ -432,27 +433,20 @@ def start_evaluation():
                                 st.caption(f"💡 建议：{it['comment']}")
                         st.divider()
 
-    # --- 4. 总结与保存 ---
+    # --- 4. 总结 ---
     st.subheader("评估汇总")
     overall_percent = (total_system_earned / db.total_system_score * 100) if db.total_system_score else 0
-    st.metric("系统总得分率", f"{overall_percent:.2f}%")
-    comments = st.text_area("综合评估意见", height=80)
+    st.metric("总得分率", f"{overall_percent:.2f}%")
+    comments = st.text_area("综合评价", height=80)
 
-    if st.button("💾 提交并生成报告", type="primary", use_container_width=True):
+    if st.button("💾 保存报告", type="primary", use_container_width=True):
         ev_data = {
-            "factory_id": factory_id,
-            "evaluator": evaluator,
-            "eval_date": eval_date.strftime("%Y-%m-%d"),
-            "eval_type": eval_type,
-            "selected_modules": selected_modules,
-            "overall_percent": overall_percent,
-            "results": st.session_state.eval_results,
-            "comments": comments
+            "factory_id": factory_id, "evaluator": evaluator, "eval_date": eval_date.strftime("%Y-%m-%d"),
+            "eval_type": eval_type, "selected_modules": selected_modules, "overall_percent": overall_percent,
+            "results": st.session_state.eval_results, "comments": comments
         }
         saved = db.add_evaluation(ev_data)
-        st.success("数据已存档")
-        pdf_buf = generate_pdf(saved)
-        st.download_button("📥 下载PDF", data=pdf_buf, file_name=f"Report_{saved['eval_date']}.pdf")
+        st.success("已保存")
 # ==================== 历史记录 ====================
 def show_history():
     st.subheader("历史记录")
