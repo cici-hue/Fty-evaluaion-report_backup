@@ -577,11 +577,16 @@ def start_evaluation():
                     st.session_state.eval_results[it_id] = {"is_checked": False, "details": [], "image_path": None}
 
     # --- 3. 右上角微型按钮 (全选/清空) ---
-    # 使用 st.columns 强行将按钮推到最右边
+    # 创建布局：左侧留白 82%，右侧放按钮
     col_space, col_btns = st.columns([8.2, 1.8]) 
+    
     with col_btns:
+        # 【关键修改】：通过添加多个微型换行，将按钮垂直向下顶
+        # 你可以根据实际效果增删下面的 <div style='height: 15px;'></div> 来调整高度
+        st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True) 
+        
         sub_c1, sub_c2 = st.columns(2)
-        # CSS 强制微调：让按钮变得更小、字体更细、高度更矮
+        # CSS 强制微调：保持按钮小尺寸
         st.markdown("""
             <style>
             div[data-testid="stColumn"] button {
@@ -596,7 +601,7 @@ def start_evaluation():
         
         if sub_c1.button("全选", key="small_all"):
             for it_id in all_item_ids:
-                st.session_state[f"chk_{it_id}"] = True # 必须同步更新 checkbox 的 key
+                st.session_state[f"chk_{it_id}"] = True
                 st.session_state.eval_results[it_id]["is_checked"] = True
             st.rerun()
         if sub_c2.button("清空", key="small_none"):
