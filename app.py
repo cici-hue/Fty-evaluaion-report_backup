@@ -721,7 +721,7 @@ def start_evaluation():
         # 这个方法内部会自动执行 self._save_evaluations() 将数据写入 evaluations.json
         saved_record = db.add_evaluation(ev_data) 
         
-        st.success(f"✅ 评估数据已成功保存至 {DATA_DIR}/evaluations.json")
+        # st.success(f"✅ 评估数据已成功保存至 {DATA_DIR}/evaluations.json")
 
         # 3. 立即生成 PDF 文件流
         # generate_pdf 函数会返回一个 BytesIO 内存流
