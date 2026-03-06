@@ -60,6 +60,15 @@ class DataStore:
         self.modules = self._init_modules()
         self.evaluations = self._load_evaluations()
         self.total_system_score = 177
+   
+    def get_item_score(self, item_id):
+        """根据ID在配置中查找该项对应的原始分值"""
+        for mod in self.modules.values():
+            for sub in mod['sub_modules'].values():
+                for it in sub['items']:
+                    if it['id'] == item_id:
+                        return it['score']
+        return 0
 
     def _init_modules(self):
         return {
@@ -516,15 +525,14 @@ def main():
             del st.session_state['eval_results']
         st.rerun()
 
-    menu = st.sidebar.radio("功能菜单", ["开始评估", "历史记录", "对比分析"])
+    menu = st.sidebar.radio("功能菜单", ["开始评估", "历史记录", "数据分析"])
 
     if menu == "开始评估":
         start_evaluation()
     elif menu == "历史记录":
         show_history()
-    elif menu == "对比分析":
-        st.subheader("对比分析")
-        st.info("功能开发中...")
+    elif menu == "数据分析":
+        show_data_analysis()
 
 # ==================== 核心评估页面（一键全选/清空 修复版） ====================
 # ==================== 核心评估页面（优化版：拍照/缩略图/大图） ====================
@@ -741,6 +749,78 @@ def start_evaluation():
             file_name=f"工厂评估报告_{saved_record['id']}_{eval_date}.pdf",
             mime="application/pdf"
         )
+
+# ==================== 数据分析看板 ====================
+def show_data_analysis():
+    st.header("📊 工厂数据深度看板")
+    
+    # 1. 基础数据检查
+    evals = db.evaluations
+    if not evals:
+        st.info("💡 暂无评估记录。")
+        return
+
+    # 转换为 DataFrame
+    df = pd.DataFrame(evals)
+    df['eval_date'] = pd.to_datetime(df['eval_date'])
+    factory_map = {f['id']: f['name'] for f in db.factories}
+
+    # 2. 筛选器
+    selected_f_id = st.selectbox("选择分析工厂", options=list(factory_map.keys()), 
+                                 format_func=lambda x: factory_map[x])
+    f_df = df[df['factory_id'] == selected_f_id].sort_values('eval_date')
+
+    # --- 图表 1：健康趋势图 ---
+    st.subheader("📈 工厂健康趋势 (近半年得分)")
+    if not f_df.empty:
+        fig_line = px.line(f_df, x='eval_date', y='overall_percent', markers=True,
+                          title=f"{factory_map[selected_f_id]} 得分走走势")
+        fig_line.update_yaxes(range=[0, 105])
+        st.plotly_chart(fig_line, use_container_width=True)
+
+    # --- 图表 2：模块画像雷达图 ---
+    st.divider()
+    st.subheader("🕸️ 模块能力画像 (最新数据)")
+    if not f_df.empty:
+        latest_res = f_df.iloc[-1]['results']
+        r_labels, r_values = [], []
+        
+        for mod_name, mod_info in db.modules.items():
+            mod_items = [it['id'] for sub in mod_info['sub_modules'].values() for it in sub['items']]
+            earned = sum(db.get_item_score(i) for i in mod_items if latest_res.get(i,{}).get('is_checked'))
+            total = sum(db.get_item_score(i) for i in mod_items)
+            r_labels.append(mod_name)
+            r_values.append((earned/total*100) if total > 0 else 0)
+
+        fig_radar = go.Figure(data=go.Scatterpolar(r=r_values, theta=r_labels, fill='toself'))
+        fig_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])))
+        st.plotly_chart(fig_radar, use_container_width=True)
+
+    # --- 图表 3：高频缺陷 Top 10 ---
+    st.divider()
+    st.subheader("🚨 行业高频缺陷排行 (全汇总)")
+    all_details = [d for e in evals for r in e['results'].values() for d in r.get('details', [])]
+    if all_details:
+        top_10 = pd.Series(all_details).value_counts().head(10).reset_index()
+        top_10.columns = ['缺陷描述', '频次']
+        fig_bar = px.bar(top_10, x='频次', y='缺陷描述', orientation='h', color='频次')
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    # --- 表格：全小项合规穿透 ---
+    st.divider()
+    st.subheader("🔍 细项合规性深度穿透")
+    item_analysis = []
+    for m_n, m_i in db.modules.items():
+        for s_n, s_i in m_i['sub_modules'].items():
+            for it in s_i['items']:
+                hist = [e['results'].get(it['id'],{}).get('is_checked', False) for e in evals]
+                rate = (sum(hist)/len(hist)*100) if hist else 0
+                item_analysis.append({"模块": m_n, "项目": it['name'], "合格率": rate})
+    
+    st.dataframe(pd.DataFrame(item_analysis), column_config={
+        "合格率": st.column_config.ProgressColumn(format="%.1f%%", min_value=0, max_value=100)
+    }, use_container_width=True)
+
 # ==================== 历史记录 ====================
 def show_history():
     st.subheader("历史记录")
