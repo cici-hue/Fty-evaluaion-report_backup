@@ -460,6 +460,11 @@ def generate_pdf(evaluation):
     other_items = []
 
     for mod_name in evaluation['selected_modules']:
+            # --- 修改点：增加安全检查 ---
+        if mod_name not in db.modules:
+            # 如果历史记录中的模块名在当前配置里找不到了，跳过此模块或打印日志
+            print(f"Warning: Module {mod_name} not found in current configuration.")
+            continue
         mod = db.modules[mod_name]
         for sub_name, sub_mod in mod['sub_modules'].items():
             for item in sub_mod['items']:
