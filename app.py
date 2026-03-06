@@ -321,6 +321,18 @@ def start_evaluation():
     with col4:
         eval_type = st.selectbox("审核性质", ["常规审核", "整改复查"])
 
+    # 【新增功能：整改复查对比逻辑】
+    last_ev = None
+    if eval_type == "整改复查":
+        # 筛选该工厂之前的评估记录并按时间倒序
+        past_evals = [e for e in db.evaluations if e['factory_id'] == factory_id]
+        if past_evals:
+            # 获取最近的一条记录
+            last_ev = sorted(past_evals, key=lambda x: x['eval_date'], reverse=True)[0]
+            st.warning(f"🔄 已载入对比模式：正在对比该工厂上一次评估 ({last_ev['eval_date']}) 的表现")
+        else:
+            st.info("该工厂暂无历史评估记录，将以常规模式进行。")
+
     all_modules = list(db.modules.keys())
     selected_modules = all_modules if eval_type == "常规审核" else st.multiselect("选择复查模块", all_modules)
     
@@ -338,7 +350,7 @@ def start_evaluation():
                 if it['id'] not in st.session_state.eval_results:
                     st.session_state.eval_results[it['id']] = {"is_checked": False, "details": [], "image_path": None}
 
-    # 一键操作逻辑
+    # 一键操作逻辑保持不变
     col_a, col_b, _ = st.columns([1, 1, 6])
     with col_a:
         if st.button("✅ 一键全选"):
@@ -374,32 +386,50 @@ def start_evaluation():
         mod_score_percent = (mod_earned / SYSTEM_TOTAL_FIXED * 100)
         total_system_earned += mod_earned
 
-        # 模块层：静态标题，防止勾选后自动收起
+        # 【计算上一次模块得分】
+        last_mod_info = ""
+        if last_ev:
+            # 找到上次该模块涉及的所有子项并求和
+            last_mod_earned = 0
+            for s_name, s_data in mod_data['sub_modules'].items():
+                last_mod_earned += sum(it['score'] for it in s_data['items'] if last_ev['results'].get(it['id'], {}).get('is_checked', False))
+            last_mod_percent = (last_mod_earned / SYSTEM_TOTAL_FIXED * 100)
+            last_mod_info = f" (上次: {last_mod_percent:.1f}%)"
+
         with st.expander(f"📦{mod_name}", expanded=True):
-            # 仅显示百分比
-            st.write(f"**模块得分: :blue[{mod_score_percent:.1f}%]**")
+            st.write(f"**模块得分: :blue[{mod_score_percent:.1f}%]** {last_mod_info}")
             
             for sub_name, sub_mod in mod_data['sub_modules'].items():
-                # 计算子项实时总分
                 sub_earned = sum(it['score'] for it in sub_mod['items'] if st.session_state.get(f"chk_{it['id']}", False))
-                # 换算百分比 (基于177)
                 sub_score_percent = (sub_earned / SYSTEM_TOTAL_FIXED * 100)
 
-                # 子项层：使用固定 Key 锁定展开状态
+                # 【计算上一次子项得分】
+                last_sub_info = ""
+                if last_ev:
+                    last_sub_earned = sum(it['score'] for it in sub_mod['items'] if last_ev['results'].get(it['id'], {}).get('is_checked', False))
+                    last_sub_percent = (last_sub_earned / SYSTEM_TOTAL_FIXED * 100)
+                    last_sub_info = f" (上次: {last_sub_percent:.1f}%)"
+
                 sub_key = f"exp_{factory_id}_{mod_name}_{sub_name}"
                 with st.expander(f"🔹 {sub_name}", expanded=False, key=sub_key):
-                    # 仅显示百分比
-                    st.write(f"**子项得分: :green[{sub_score_percent:.1f}%]**")
+                    st.write(f"**子项得分: :green[{sub_score_percent:.1f}%]** {last_sub_info}")
                     st.write("") 
 
                     for it in sub_mod['items']:
                         it_id = it['id']
                         c1, c2, c3 = st.columns([0.65, 0.2, 0.15])
                         
+                        # 【计算上一次该项是否合格】
+                        last_item_status = ""
+                        if last_ev:
+                            was_ok = last_ev['results'].get(it_id, {}).get('is_checked', False)
+                            last_item_status = " | :green[上次合格]" if was_ok else " | :red[上次不合格]"
+
                         with c1:
-                            # 关键项全橙色 (包括文字和括号)
                             label = f":orange[{it['name']} (关键项)]" if it.get('is_key') else it['name']
-                            is_checked = st.checkbox(label, key=f"chk_{it_id}")
+                            # 在 Label 后面增加上次状态提示
+                            full_label = f"{label}{last_item_status}"
+                            is_checked = st.checkbox(full_label, key=f"chk_{it_id}")
                             st.session_state.eval_results[it_id]['is_checked'] = is_checked
 
                         with c2:
@@ -441,7 +471,13 @@ def start_evaluation():
     # --- 4. 总结区 ---
     st.subheader("评估汇总")
     overall_percent = (total_system_earned / SYSTEM_TOTAL_FIXED * 100)
-    st.metric("总得分率", f"{overall_percent:.2f}%")
+    
+    # 汇总处的对比
+    if last_ev:
+        st.metric("总得分率", f"{overall_percent:.2f}%", delta=f"{overall_percent - last_ev['overall_percent']:.2f}%")
+    else:
+        st.metric("总得分率", f"{overall_percent:.2f}%")
+        
     comments = st.text_area("综合评估意见", height=80)
 
     if st.button("💾 保存并生成报告", type="primary", use_container_width=True):
