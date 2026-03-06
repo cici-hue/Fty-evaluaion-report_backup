@@ -576,44 +576,47 @@ def start_evaluation():
                 if it_id not in st.session_state.eval_results:
                     st.session_state.eval_results[it_id] = {"is_checked": False, "details": [], "image_path": None}
 
-    # --- 3. 右上角微型按钮 (全选/清空) ---
-    # 创建布局：左侧留白 82%，右侧放按钮
-    col_space, col_btns = st.columns([8.2, 1.8]) 
+   # --- 3. 核心评分循环（及右上角操作按钮） ---
+    st.divider()
+
+    # 使用容器布局，将按钮精准定位在分割线下方、列表右上角
+    # col_space 占比 8.5，确保按钮被推到最右
+    col_space, col_btns = st.columns([8.5, 1.5])
     
     with col_btns:
-        # 【关键修改】：通过添加多个微型换行，将按钮垂直向下顶
-        # 你可以根据实际效果增删下面的 <div style='height: 15px;'></div> 来调整高度
-        st.markdown("<div style='height: 35px;'></div>", unsafe_allow_html=True) 
-        
-        sub_c1, sub_c2 = st.columns(2)
-        # CSS 强制微调：保持按钮小尺寸
+        # 增加一小段负边距 CSS，让按钮稍微上移，贴近分割线
         st.markdown("""
             <style>
+            .st-key-small_btns_container {
+                margin-top: -45px; 
+            }
             div[data-testid="stColumn"] button {
                 padding: 1px 2px !important;
                 font-size: 11px !important;
                 height: 22px !important;
                 min-height: 22px !important;
                 line-height: 1 !important;
+                background-color: #f0f2f6;
             }
             </style>
         """, unsafe_allow_html=True)
         
-        if sub_c1.button("全选", key="small_all"):
-            for it_id in all_item_ids:
-                st.session_state[f"chk_{it_id}"] = True
-                st.session_state.eval_results[it_id]["is_checked"] = True
-            st.rerun()
-        if sub_c2.button("清空", key="small_none"):
-            for it_id in all_item_ids:
-                st.session_state[f"chk_{it_id}"] = False
-                st.session_state.eval_results[it_id]["is_checked"] = False
-            st.rerun()
+        # 使用容器包裹按钮以便精确定位
+        with st.container():
+            sub_c1, sub_c2 = st.columns(2)
+            if sub_c1.button("全选", key="small_all"):
+                for it_id in all_item_ids:
+                    st.session_state[f"chk_{it_id}"] = True
+                    st.session_state.eval_results[it_id]["is_checked"] = True
+                st.rerun()
+            if sub_c2.button("清空", key="small_none"):
+                for it_id in all_item_ids:
+                    st.session_state[f"chk_{it_id}"] = False
+                    st.session_state.eval_results[it_id]["is_checked"] = False
+                st.rerun()
 
-    st.divider()
-
-    # --- 4. 核心评分循环 ---
     total_system_earned = 0
+    # ... 后面接原来的 for mod_name in selected_modules: ...
 
     for mod_name in selected_modules:
         mod_data = db.modules[mod_name]
