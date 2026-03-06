@@ -575,24 +575,37 @@ def start_evaluation():
                 if it['id'] not in st.session_state.eval_results:
                     st.session_state.eval_results[it['id']] = {"is_checked": False, "details": [], "image_path": None}
 
-    # 一键操作逻辑保持不变
-    col_a, col_b, _ = st.columns([1, 1, 6])
-    with col_a:
-        if st.button("✅ 一键全选"):
-            for mod_name in selected_modules:
-                for sub in db.modules[mod_name]['sub_modules'].values():
-                    for it in sub['items']:
-                        st.session_state.eval_results[it['id']]["is_checked"] = True
-                        st.session_state[f"chk_{it['id']}"] = True
-            st.rerun()
-    with col_b:
-        if st.button("❌ 一键清空"):
-            for mod_name in selected_modules:
-                for sub in db.modules[mod_name]['sub_modules'].values():
-                    for it in sub['items']:
-                        st.session_state.eval_results[it['id']]["is_checked"] = False
-                        st.session_state[f"chk_{it['id']}"] = False
-            st.rerun()
+   # —————— 视觉优化：一键全选 / 清空 移至右上角 ——————
+    # 创建 4 列，前 3 列为空（占位），第 4 列放小按钮
+    col_space, col_btns = st.columns([7, 2]) 
+    
+    with col_btns:
+        # 使用内联布局小按钮
+        sub_col1, sub_col2 = st.columns(2)
+        with sub_col1:
+            if st.button("全选", key="btn_all", help="一键勾选当前所有项目", use_container_width=True):
+                for it_id in all_item_ids:
+                    st.session_state.eval_results[it_id]["is_checked"] = True
+                st.rerun()
+        with sub_col2:
+            if st.button("清空", key="btn_none", help="取消勾选当前所有项目", use_container_width=True):
+                for it_id in all_item_ids:
+                    st.session_state.eval_results[it_id]["is_checked"] = False
+                st.rerun()
+
+    # 添加自定义 CSS 使这部分按钮变小且靠上
+    st.markdown("""
+        <style>
+        /* 针对这两个小按钮的样式微调 */
+        div[data-testid="stColumn"] > div > div > div > button {
+            padding: 2px 5px !important;
+            font-size: 12px !important;
+            height: auto !important;
+            min-height: 25px !important;
+            line-height: 1.2 !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
     st.divider()
 
