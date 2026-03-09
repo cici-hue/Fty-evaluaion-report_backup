@@ -560,6 +560,96 @@ def generate_pdf(evaluation):
     buffer.seek(0)
     return buffer
 
+def handle_edit_logic(record, index):
+    """
+    点击编辑按钮后调用的逻辑
+    """
+    # 将记录存入 session 状态，供评估表单读取
+    st.session_state.editing_record = record
+    st.session_state.editing_index = index
+    st.session_state.is_edit_mode = True
+    
+    # 强制切换回“开始评估”页面
+    # 注意：这里的字符串要和你 sidebar.radio 里的“开始评估”选项完全一致
+    st.session_state.menu_choice = "🏠 开始评估" 
+    st.rerun()
+
+def get_default_val(key, default=False):
+    """
+    安全获取回填值：如果是编辑模式，取历史值；否则取默认值
+    """
+    if st.session_state.get("is_edit_mode") and st.session_state.get("editing_record"):
+        return st.session_state.editing_record.get("results", {}).get(key, default)
+    return default
+
+def inject_print_css():
+    """
+    注入打印优化样式
+    """
+    st.markdown("""
+        <style>
+        @media print {
+            /* 隐藏侧边栏、顶部导航、按钮、工具栏 */
+            [data-testid="stSidebar"], 
+            header, 
+            footer, 
+            .stButton, 
+            [data-testid="stToolbar"],
+            .stTabs {
+                display: none !important;
+            }
+            /* 扩展正文宽度到整张纸 */
+            .main .block-container {
+                max-width: 100% !important;
+                padding: 1cm !important;
+            }
+            /* 强制显示复选框的边框（部分浏览器默认不打印背景） */
+            input[type="checkbox"] {
+                -webkit-print-color-adjust: exact;
+            }
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+def save_evaluation_logic(new_record):
+    """
+    核心保存逻辑：区分『新增』与『覆盖』
+    """
+    # 获取当前所有评估记录
+    all_evals = db.evaluations 
+    
+    if st.session_state.get("is_edit_mode"):
+        # --- 覆盖模式 ---
+        edit_idx = st.session_state.get("editing_index")
+        
+        # 安全检查：确保索引有效
+        if edit_idx is not None and 0 <= edit_idx < len(all_evals):
+            # 1. 替换旧记录
+            all_evals[edit_idx] = new_record
+            
+            # 2. 持久化到 JSON 或 服务器
+            db.save_evaluations() 
+            
+            st.success(f"✅ 报告已成功更新！(记录索引: {edit_idx})")
+            
+            # 3. 退出编辑模式并重置状态
+            st.session_state.is_edit_mode = False
+            st.session_state.editing_record = None
+            st.session_state.editing_index = None
+            
+            # 4. 延迟刷新，让用户看清成功提示
+            import time
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error("❌ 编辑失败：找不到原始记录索引。")
+    else:
+        # --- 正常新增模式 ---
+        all_evals.append(new_record)
+        db.save_evaluations()
+        st.success("✅ 新评估报告已保存！")
+        st.rerun()
+
 # ==================== 页面路由 ====================
 def main():
     if 'user' not in st.session_state:
@@ -596,17 +686,35 @@ def main():
 # ==================== 核心评估页面（优化版：拍照/缩略图/大图） ====================
 def start_evaluation(current_user_id):
     inject_custom_css()
+    inject_print_css()  # <--- 【添加位置 1】
     st.subheader("欢迎回来，评估员")
+    
+    # 【新增：编辑模式提醒】
+    if st.session_state.get("is_edit_mode"):
+        st.warning(f"🔄 正在编辑历史记录：{st.session_state.editing_record.get('eval_date')}")
+        if st.button("取消编辑"):
+            st.session_state.is_edit_mode = False
+            st.session_state.editing_record = None
+            st.rerun()
 
     # 定义系统固定总分分母
     SYSTEM_TOTAL_FIXED = 177
 
-    # --- 1. 基础配置 ---
+   # --- 1. 基础配置 ---
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        factory_id = st.selectbox("评估工厂", [(f['id'], f['name']) for f in db.factories], format_func=lambda x: x[1])[0]
+        # 回填工厂 ID
+        default_fty = get_default_val("factory_id", db.factories[0]['id'])
+        # 找到对应 ID 在列表中的索引
+        fty_options = [(f['id'], f['name']) for f in db.factories]
+        fty_index = next((i for i, f in enumerate(fty_options) if f[0] == default_fty), 0)
+        factory_id = st.selectbox("评估工厂", fty_options, index=fty_index, format_func=lambda x: x[1])[0]
     with col2:
-        eval_date = st.date_input("评估日期", date.today())
+        # 回填日期
+        default_date = get_default_val("eval_date", date.today())
+        if isinstance(default_date, str): # 如果从 JSON 读取的是字符串则转换
+             default_date = datetime.strptime(default_date, "%Y-%m-%d").date()
+        eval_date = st.date_input("评估日期", default_date)
     with col3:
         evaluator = st.text_input("评估员", value=st.session_state.get('user', ''))
     with col4:
@@ -720,7 +828,7 @@ def start_evaluation(current_user_id):
                     last_sub_info = f" (上次: {last_sub_percent:.1f}%)"
 
                 sub_key = f"exp_{factory_id}_{mod_name}_{sub_name}"
-                with st.expander(f"🔹 {sub_name}", expanded=False, key=sub_key):
+                with st.expander(f"🔹 {sub_name}", expanded=auto_expand, key=sub_key):
                     st.write(f"**子项得分: :green[{sub_score_percent:.1f}%]** {last_sub_info}")
                     st.write("") 
 
@@ -734,13 +842,24 @@ def start_evaluation(current_user_id):
                             was_ok = last_ev['results'].get(it_id, {}).get('is_checked', False)
                             last_item_status = " | :green[上次合格]" if was_ok else " | :red[上次不合格]"
 
+                       # ... 在循环内部 ...
                         with c1:
                             label = f":orange[{it['name']} (关键项)]" if it.get('is_key') else it['name']
                             full_label = f"{label}{last_item_status}"
-                            # 关键修复：checkbox 直接关联其 key
-                            is_checked = st.checkbox(full_label, key=f"chk_{it_id}")
+                            
+                            # --- 【修改位置 2：回填复选框】 ---
+                            # 关键：从历史记录的 results 字典里按 ID 找之前的 is_checked
+                            history_results = st.session_state.get("editing_record", {}).get("results", {})
+                            history_item_checked = history_results.get(it_id, {}).get("is_checked", False)
+                            
+                            # 使用 get_default_val 的逻辑决定初始状态
+                            is_checked = st.checkbox(
+                                full_label, 
+                                key=f"chk_{it_id}", 
+                                value=history_item_checked if st.session_state.get("is_edit_mode") else st.session_state.get(f"chk_{it_id}", False)
+                            )
                             st.session_state.eval_results[it_id]['is_checked'] = is_checked
-
+                            
                         with c2:
                             with st.popover("📸 拍照上传"):
                                 img_file = st.file_uploader("拍照", type=['jpg','png','jpeg'], key=f"up_{it_id}", label_visibility="collapsed")
@@ -788,19 +907,23 @@ def start_evaluation(current_user_id):
         
     comments = st.text_area("综合评估意见", height=80)
 
+    # --- 【修改位置 3：保存逻辑】 ---
     if st.button("保存并生成报告", type="primary"):
         ev_data = {
             "factory_id": factory_id,
             "evaluator": evaluator,
             "eval_date": eval_date.strftime("%Y-%m-%d"),
-            "evaluator_id": st.session_state.user_id, # <--- 记录是谁提交的
+            "evaluator_id": st.session_state.user_id,
             "eval_type": eval_type,
             "selected_modules": selected_modules,
             "overall_percent": overall_percent,
             "results": st.session_state.eval_results,
             "comments": comments
         }
-        saved_record = db.add_evaluation(ev_data) 
+        
+        # 调用覆盖逻辑函数
+        save_evaluation_logic(ev_data)
+        
         pdf_buf = generate_pdf(saved_record) 
         st.download_button(
             label="📥 下载评估报告 (PDF)",
