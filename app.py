@@ -1103,62 +1103,100 @@ def show_admin_panel():
 # ==================== 历史记录 ====================
 def show_history(evals_to_show):
     st.subheader("历史记录")
-    if not db.evaluations:
+    if not evals_to_show: # 修正：这里应该判断传入的过滤列表
         st.info("暂无记录")
         return
-    for ev in reversed(db.evaluations):
-        factory_name = next(f['name'] for f in db.factories if f['id'] == ev['factory_id'])
+        
+    # 用 enumerate 获取索引，用于编辑定位
+    for i, ev in enumerate(reversed(db.evaluations)):
+        # 计算该记录在原始 db.evaluations 中的真实索引（因为是 reversed）
+        real_idx = len(db.evaluations) - 1 - i
+        
+        factory_name = next((f['name'] for f in db.factories if f['id'] == ev['factory_id']), "未知工厂")
+        
         with st.expander(f"📅 {ev['eval_date']} | {factory_name} | {ev['eval_type']}"):
-            c1,c2,c3 = st.columns([2,2,1])
+            c1, c2, c3, c4 = st.columns([2, 2, 1, 1]) # 增加一列给编辑按钮
             with c1: st.write(f"评估人：{ev['evaluator']}")
             with c2: st.write(f"得分：{ev['overall_percent']:.2f}%")
             with c3:
                 pdf_buf = generate_pdf(ev)
-                st.download_button("下载报告", pdf_buf, f"报告_{ev['id']}.pdf", key=f"dl{ev['id']}")
+                st.download_button("📥 下载", pdf_buf, f"报告_{ev['id']}.pdf", key=f"dl{ev['id']}")
+            with c4:
+                # --- 【新增编辑按钮】 ---
+                if st.button("📝 编辑", key=f"edit_{ev['id']}"):
+                    handle_edit_logic(ev, real_idx)
+            
             st.write(f"评论：{ev['comments']}")
 
 def main():
-    login() # 1. 拦截未登录用户（如果没登录会执行 st.stop()）
+    # 1. 拦截未登录用户
+    login() 
     
-    # 只有 login() 通过后，以下代码才会执行
-    # 2. 侧边栏页眉
+    # 2. 侧边栏页眉展示用户信息
     st.sidebar.title(f"👤 {st.session_state.user_name}")
     st.sidebar.caption(f"权限: {st.session_state.role.upper()}")
     st.sidebar.divider()
     
-    # 3. 【核心修复点】先定义列表，再传给 radio
+    # 3. 定义菜单选项
     menu_options = ["🏠 开始评估", "📊 数据分析", "📜 历史记录"]
     
-    # 根据角色追加权限
+    # 根据角色追加权限（仅超级管理员可见）
     if st.session_state.role == "sadmin":
         menu_options.append("⚙️ 系统管理")
     
-    # 4. 现在调用 radio，menu_options 已经确定存在了
+    # --- 核心逻辑：自动跳转 ---
+    # 如果处于编辑模式，强制将 sidebar 的选中项设为 0 (即 "🏠 开始评估")
+    default_index = 0
+    if st.session_state.get("is_edit_mode"):
+        default_index = 0
+    else:
+        # 如果不是编辑模式，维持用户手动选择的项（这里利用 session_state 记录上一次的选择，防止 rerun 丢失位置）
+        if "last_choice_index" in st.session_state:
+            default_index = st.session_state.last_choice_index
+
+    # 4. 调用 radio 菜单
     choice = st.sidebar.radio(
         "功能导航", 
         options=menu_options,
-        index=0
+        index=default_index,
+        key="navigation_radio" # 增加 key 保证稳定性
     )
+    
+    # 记录当前选择的索引，方便下次刷新保持位置
+    st.session_state.last_choice_index = menu_options.index(choice)
 
     st.sidebar.divider()
 
-    # 5. 获取过滤后的数据
+    # 5. 获取过滤后的数据 (根据用户 ID 和权限)
     filtered_evals = db.get_evaluations_by_user(st.session_state.user_id, st.session_state.role)
 
-    # 6. 路由分发 (使用 'in' 关键字匹配图标文字)
+    # 6. 路由分发
+    # 使用 'in' 匹配，防止因为图标导致的字符串匹配失败
     if "开始评估" in choice:
+        # 进入评估页面（此时 start_evaluation 内部会自动处理回填逻辑）
         start_evaluation(st.session_state.user_id) 
+        
     elif "数据分析" in choice:
+        # 如果处于编辑模式时切换页面，建议自动退出编辑模式，防止逻辑混乱
+        st.session_state.is_edit_mode = False 
         show_data_analysis(filtered_evals)
+        
     elif "历史记录" in choice:
+        st.session_state.is_edit_mode = False
         show_history(filtered_evals)
+        
     elif "系统管理" in choice:
+        st.session_state.is_edit_mode = False
         show_admin_panel() 
 
-    # 7. 退出登录
+    # 7. 退出登录按钮
+    st.sidebar.divider()
     if st.sidebar.button("🚪 退出登录", use_container_width=True):
-        st.session_state.clear()
+        # 清空所有状态并重启
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
         st.rerun()
-        
+
+# 在程序最后运行 main
 if __name__ == "__main__":
     main()
