@@ -11,6 +11,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.lib.colors import red, HexColor  # 必须添加这行
 
 # ==================== 页面配置 ====================
 st.set_page_config(
@@ -446,162 +447,220 @@ class DataStore:
             }
         }
     def _load_evaluations(self):
+        """加载所有评估记录（私有方法）"""
         f = os.path.join(DATA_DIR, "evaluations.json")
-        return json.load(open(f, 'r', encoding='utf-8')) if os.path.exists(f) else []
+        try:
+            return json.load(open(f, 'r', encoding='utf-8')) if os.path.exists(f) else []
+        except Exception as e:
+            st.error(f"加载评估记录失败：{e}")
+            return []
 
-    def save_evaluation(self, ev, index=None):
-    # """
-    # 如果提供了 index，则覆盖旧记录（编辑模式）；
-    # 否则追加新记录（新增模式）。
-    # """
+    def _save_evaluations(self):
+        """保存整个评估列表到文件（私有方法，无参数）"""
+        f = os.path.join(DATA_DIR, "evaluations.json")
+        try:
+            with open(f, 'w', encoding='utf-8') as file:
+                json.dump(self.evaluations, file, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            st.error(f"保存评估记录失败：{e}")
+            return False
+
+    def save_single_evaluation(self, ev, index=None):
+        """
+        保存单条评估记录（适配编辑/新增模式）
+        :param ev: 评估数据字典
+        :param index: 编辑模式时传入记录索引，新增模式传None
+        :return: 保存后的评估记录
+        """
         if index is not None and 0 <= index < len(self.evaluations):
-            # 编辑模式：保持原有的 ID 和创建时间
+            # 编辑模式：覆盖旧记录，保留原有ID和创建时间
             ev['id'] = self.evaluations[index]['id']
             ev['created_at'] = self.evaluations[index].get('created_at', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             ev['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             self.evaluations[index] = ev
         else:
-            # 新增模式
+            # 新增模式：生成新ID和创建时间
             ev['id'] = len(self.evaluations) + 1
             ev['created_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             self.evaluations.append(ev)
         
+        # 调用私有方法保存整个列表
         self._save_evaluations()
         return ev
 
+    # ========== 关键：适配原有调用的无参方法 ==========
+    def save_evaluations(self):
+        """无参数的保存方法（仅保存当前的evaluations列表）"""
+        return self._save_evaluations()
+
+    # 保留原有add_evaluation方法（兼容旧逻辑）
     def add_evaluation(self, ev):
-        ev['id'] = len(self.evaluations) + 1
-        ev['created_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        self.evaluations.append(ev)
-        self._save_evaluations()
-        return ev
-
+        return self.save_single_evaluation(ev, index=None)
 # ==================== 初始化 ====================
 db = DataStore()
 
-# ==================== PDF生成工具 ====================
+# ===================== 核心函数（修复后） =====================
 def generate_pdf(evaluation):
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
-    styles = getSampleStyleSheet()
+    """
+    生成评估报告PDF
+    :param evaluation: 评估记录字典
+    :return: BytesIO 二进制PDF流
+    """
+    try:
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        styles = getSampleStyleSheet()
 
-    chinese_styles = {
-        'Heading1': ParagraphStyle(
-            'CustomHeading1', parent=styles['Heading1'], fontName=CHINESE_FONT,
-            fontSize=18, spaceAfter=20, alignment=1
-        ),
-        'Heading2': ParagraphStyle(
-            'CustomHeading2', parent=styles['Heading2'], fontName=CHINESE_FONT,
-            fontSize=14, spaceAfter=12
-        ),
-        'Normal': ParagraphStyle(
-            'CustomNormal', parent=styles['Normal'], fontName=CHINESE_FONT,
-            fontSize=12, spaceAfter=6
-        ),
-        'TotalScore': ParagraphStyle(
-            'CustomTotalScore', parent=styles['Normal'], fontName=CHINESE_FONT,
-            fontSize=16, spaceAfter=12, textColor='red', bold=True
-        ),
-        'KeyProcess': ParagraphStyle(
-            'CustomKeyProcess', parent=styles['Normal'], fontName=CHINESE_FONT,
-            fontSize=12, spaceAfter=6, textColor='#FF8C00'
-        )
-    }
+        # 定义中文字体样式（修复颜色定义错误）
+        chinese_styles = {
+            'Heading1': ParagraphStyle(
+                'CustomHeading1', parent=styles['Heading1'], fontName=CHINESE_FONT,
+                fontSize=18, spaceAfter=20, alignment=1
+            ),
+            'Heading2': ParagraphStyle(
+                'CustomHeading2', parent=styles['Heading2'], fontName=CHINESE_FONT,
+                fontSize=14, spaceAfter=12
+            ),
+            'Normal': ParagraphStyle(
+                'CustomNormal', parent=styles['Normal'], fontName=CHINESE_FONT,
+                fontSize=12, spaceAfter=6
+            ),
+            'TotalScore': ParagraphStyle(
+                'CustomTotalScore', parent=styles['Normal'], fontName=CHINESE_FONT,
+                fontSize=16, spaceAfter=12, textColor=red, bold=True
+            ),
+            'KeyProcess': ParagraphStyle(
+                'CustomKeyProcess', parent=styles['Normal'], fontName=CHINESE_FONT,
+                fontSize=12, spaceAfter=6, textColor=HexColor('#FF8C00')  # 修复颜色定义
+            )
+        }
 
-    elements = []
-    elements.append(Paragraph("工厂流程审核报告", chinese_styles['Heading1']))
-    factory_name = next(f['name'] for f in db.factories if f['id'] == evaluation['factory_id'])
-    elements.extend([
-        Paragraph(f"工厂名称：{factory_name}", chinese_styles['Normal']),
-        Paragraph(f"评估日期：{evaluation['eval_date']}", chinese_styles['Normal']),
-        Paragraph(f"评估人员：{evaluation['evaluator']}", chinese_styles['Normal']),
-        Paragraph(f"审核性质：{evaluation.get('eval_type', '未记录')}", chinese_styles['Normal']), # 新增行
-        Paragraph(f"工厂总分：{evaluation['overall_percent']:.2f}%", chinese_styles['TotalScore']),
-        Spacer(1, 12)
-    ])
+        elements = []
+        elements.append(Paragraph("工厂流程审核报告", chinese_styles['Heading1']))
+        
+        # 安全获取工厂名称（修复StopIteration异常）
+        factory_name = "未知工厂"
+        try:
+            factory_name = next(f['name'] for f in db.factories if f['id'] == evaluation['factory_id'])
+        except StopIteration:
+            print(f"警告：未找到工厂ID为 {evaluation['factory_id']} 的工厂")
 
-    elements.append(Paragraph("一、存在问题汇总", chinese_styles['Heading2']))
-    elements.append(Paragraph("经评估，请该工厂注意以下方面：", chinese_styles['Normal']))
+        # 构建基础信息（增加空值安全处理）
+        elements.extend([
+            Paragraph(f"工厂名称：{factory_name}", chinese_styles['Normal']),
+            Paragraph(f"评估日期：{evaluation.get('eval_date', '未记录')}", chinese_styles['Normal']),
+            Paragraph(f"评估人员：{evaluation.get('evaluator', '未记录')}", chinese_styles['Normal']),
+            Paragraph(f"审核性质：{evaluation.get('eval_type', '未记录')}", chinese_styles['Normal']),
+            # 安全处理总分（避免KeyError/TypeError）
+            Paragraph(f"工厂总分：{evaluation.get('overall_percent', 0):.2f}%", chinese_styles['TotalScore']),
+            Spacer(1, 12)
+        ])
 
-    key_items = []
-    other_items = []
+        # 存在问题汇总
+        elements.append(Paragraph("一、存在问题汇总", chinese_styles['Heading2']))
+        elements.append(Paragraph("经评估，请该工厂注意以下方面：", chinese_styles['Normal']))
 
-    for mod_name in evaluation['selected_modules']:
-            # --- 修改点：增加安全检查 ---
-        if mod_name not in db.modules:
-            # 如果历史记录中的模块名在当前配置里找不到了，跳过此模块或打印日志
-            print(f"Warning: Module {mod_name} not found in current configuration.")
-            continue
-        mod = db.modules[mod_name]
-        for sub_name, sub_mod in mod['sub_modules'].items():
-            for item in sub_mod['items']:
-                res = evaluation['results'].get(item['id'], {})
-                if not res.get('is_checked', False):
-                    item_text = f"【{mod_name}-{sub_name}】{item['name']}"
-                    if res.get('details'):
-                        item_text += f"（问题详情：{', '.join(res['details'])}）"
-                    if item['comment']:
-                        item_text += f" 改进建议：{item['comment']}"
+        key_items = []
+        other_items = []
 
-                    if item.get('is_key', False):
-                        key_items.append(item_text)
-                    else:
-                        other_items.append(item_text)
+        # 遍历评估模块（修复缩进错误+增加安全检查）
+        for mod_name in evaluation.get('selected_modules', []):
+            # 安全检查：模块是否存在
+            if mod_name not in db.modules:
+                print(f"Warning: Module {mod_name} not found in current configuration.")
+                continue
+            
+            mod = db.modules[mod_name]
+            # 安全遍历子模块
+            for sub_name, sub_mod in mod.get('sub_modules', {}).items():
+                # 安全遍历评估项
+                for item in sub_mod.get('items', []):
+                    res = evaluation.get('results', {}).get(item['id'], {})
+                    if not res.get('is_checked', False):
+                        item_text = f"【{mod_name}-{sub_name}】{item.get('name', '未知项')}"
+                        if res.get('details'):
+                            item_text += f"（问题详情：{', '.join(res['details'])}）"
+                        if item.get('comment'):
+                            item_text += f" 改进建议：{item['comment']}"
 
-    if key_items:
-        elements.append(Paragraph("（一）重点工序", chinese_styles['KeyProcess']))
-        for i, text in enumerate(key_items, 1):
-            elements.append(Paragraph(f"{i}. {text}", chinese_styles['KeyProcess']))
+                        if item.get('is_key', False):
+                            key_items.append(item_text)
+                        else:
+                            other_items.append(item_text)
+
+        # 重点工序
+        if key_items:
+            elements.append(Paragraph("（一）重点工序", chinese_styles['KeyProcess']))
+            for i, text in enumerate(key_items, 1):
+                elements.append(Paragraph(f"{i}. {text}", chinese_styles['KeyProcess']))
+                elements.append(Spacer(1, 6))
+        else:
+            elements.append(Paragraph("（一）重点工序：本次评估未发现重点工序问题", chinese_styles['KeyProcess']))
             elements.append(Spacer(1, 6))
-    else:
-        elements.append(Paragraph("（一）重点工序：本次评估未发现重点工序问题", chinese_styles['KeyProcess']))
-        elements.append(Spacer(1, 6))
 
-    if other_items:
-        elements.append(Paragraph("（二）其他工序", chinese_styles['Normal']))
-        for i, text in enumerate(other_items, 1):
-            elements.append(Paragraph(f"{i}. {text}", chinese_styles['Normal']))
+        # 其他工序
+        if other_items:
+            elements.append(Paragraph("（二）其他工序", chinese_styles['Normal']))
+            for i, text in enumerate(other_items, 1):
+                elements.append(Paragraph(f"{i}. {text}", chinese_styles['Normal']))
+                elements.append(Spacer(1, 6))
+        else:
+            elements.append(Paragraph("（二）其他工序：本次评估未发现其他工序问题", chinese_styles['Normal']))
             elements.append(Spacer(1, 6))
-    else:
-        elements.append(Paragraph("（二）其他工序：本次评估未发现其他工序问题", chinese_styles['Normal']))
-        elements.append(Spacer(1, 6))
 
-    elements.append(Paragraph("二、评估者评论", chinese_styles['Heading2']))
-    if evaluation['comments']:
-        elements.append(Paragraph(evaluation['comments'], chinese_styles['Normal']))
-    else:
-        elements.append(Paragraph("无评论", chinese_styles['Normal']))
+        # 评估者评论
+        elements.append(Paragraph("二、评估者评论", chinese_styles['Heading2']))
+        if evaluation.get('comments'):
+            elements.append(Paragraph(evaluation['comments'], chinese_styles['Normal']))
+        else:
+            elements.append(Paragraph("无评论", chinese_styles['Normal']))
 
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
+        # 生成PDF
+        doc.build(elements)
+        buffer.seek(0)
+        return buffer
+    
+    except Exception as e:
+        st.error(f"生成PDF失败：{str(e)}")
+        print(f"PDF生成错误详情：{e}")
+        return None
 
 def handle_edit_logic(record, index):
     """
     点击编辑按钮后调用的逻辑
+    :param record: 要编辑的评估记录
+    :param index: 记录在列表中的索引
     """
-    # 将记录存入 session 状态，供评估表单读取
-    st.session_state.editing_record = record
-    st.session_state.editing_index = index
-    st.session_state.is_edit_mode = True
-    
-    # 强制切换回“开始评估”页面
-    # 注意：这里的字符串要和你 sidebar.radio 里的“开始评估”选项完全一致
-    st.session_state.menu_choice = "🏠 开始评估" 
-    st.rerun()
+    try:
+        # 将记录存入 session 状态，供评估表单读取
+        st.session_state.editing_record = record
+        st.session_state.editing_index = index
+        st.session_state.is_edit_mode = True
+        
+        # 强制切换回“开始评估”页面
+        st.session_state.menu_choice = "🏠 开始评估" 
+        st.rerun()
+    except Exception as e:
+        st.error(f"进入编辑模式失败：{str(e)}")
 
 def get_default_val(key, default=False):
     """
     安全获取回填值：如果是编辑模式，取历史值；否则取默认值
+    :param key: 评估项ID
+    :param default: 默认值
+    :return: 回填值/默认值
     """
-    if st.session_state.get("is_edit_mode") and st.session_state.get("editing_record"):
-        return st.session_state.editing_record.get("results", {}).get(key, default)
-    return default
+    try:
+        if st.session_state.get("is_edit_mode") and st.session_state.get("editing_record"):
+            return st.session_state.editing_record.get("results", {}).get(key, default)
+        return default
+    except Exception as e:
+        print(f"获取默认值失败：{e}")
+        return default
 
 def inject_print_css():
-    """
-    注入打印优化样式
-    """
+    """注入打印优化样式"""
     st.markdown("""
         <style>
         @media print {
@@ -626,45 +685,267 @@ def inject_print_css():
         }
         </style>
     """, unsafe_allow_html=True)
-
-def save_evaluation_logic(new_record):
-    """
-    核心保存逻辑：区分『新增』与『覆盖』
-    """
-    # 获取当前所有评估记录
-    all_evals = db.evaluations 
     
-    if st.session_state.get("is_edit_mode"):
-        # --- 覆盖模式 ---
-        edit_idx = st.session_state.get("editing_index")
-        
-        # 安全检查：确保索引有效
-        if edit_idx is not None and 0 <= edit_idx < len(all_evals):
-            # 1. 替换旧记录
-            all_evals[edit_idx] = new_record
-            
-            # 2. 持久化到 JSON 或 服务器
-            db.save_evaluations() 
-            
-            st.success(f"✅ 报告已成功更新！(记录索引: {edit_idx})")
-            
-            # 3. 退出编辑模式并重置状态
-            st.session_state.is_edit_mode = False
-            st.session_state.editing_record = None
-            st.session_state.editing_index = None
-            
-            # 4. 延迟刷新，让用户看清成功提示
-            import time
-            time.sleep(1)
-            st.rerun()
+def save_evaluation_logic(ev_data):
+    """保存评估逻辑（最终修复版）"""
+    try:
+        if st.session_state.get("is_edit_mode"):
+            # 编辑模式：调用save_single_evaluation并传入索引
+            edit_idx = st.session_state.get("editing_index")
+            if edit_idx is not None and 0 <= edit_idx < len(db.evaluations):
+                db.save_single_evaluation(ev_data, edit_idx)
+                st.success(f"✅ 报告已成功更新！(记录索引: {edit_idx})")
+                
+                # 重置编辑状态
+                st.session_state.is_edit_mode = False
+                st.session_state.editing_record = None
+                st.session_state.editing_index = None
+                
+                import time
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error("❌ 编辑失败：找不到原始记录索引。")
         else:
-            st.error("❌ 编辑失败：找不到原始记录索引。")
-    else:
-        # --- 正常新增模式 ---
-        all_evals.append(new_record)
-        db.save_evaluations()
-        st.success("✅ 新评估报告已保存！")
-        st.rerun()
+            # 新增模式：调用save_single_evaluation（index传None）
+            db.save_single_evaluation(ev_data)
+            st.success("✅ 新评估报告已保存！")
+        
+        # 可选：如果需要单独触发保存（兜底）
+        # db.save_evaluations()
+        
+    except Exception as e:
+        st.error(f"保存评估记录失败：{str(e)}")
+        print(f"保存逻辑错误详情：{e}")
+        
+# def save_evaluation_logic(new_record):
+#     """
+#     核心保存逻辑：区分『新增』与『覆盖』
+#     :param new_record: 新的/编辑后的评估记录
+#     """
+#     try:
+#         # 获取当前所有评估记录
+#         all_evals = db.evaluations 
+        
+#         if st.session_state.get("is_edit_mode"):
+#             # --- 覆盖模式 ---
+#             edit_idx = st.session_state.get("editing_index")
+            
+#             # 安全检查：确保索引有效
+#             if edit_idx is not None and 0 <= edit_idx < len(all_evals):
+#                 # 1. 替换旧记录
+#                 all_evals[edit_idx] = new_record
+                
+#                 # 2. 持久化到 JSON 或 服务器
+#                 db.save_evaluations() 
+                
+#                 st.success(f"✅ 报告已成功更新！(记录索引: {edit_idx})")
+                
+#                 # 3. 退出编辑模式并重置状态
+#                 st.session_state.is_edit_mode = False
+#                 st.session_state.editing_record = None
+#                 st.session_state.editing_index = None
+                
+#                 # 4. 延迟刷新，让用户看清成功提示
+#                 time.sleep(1)
+#                 st.rerun()
+#             else:
+#                 st.error("❌ 编辑失败：找不到原始记录索引。")
+#         else:
+#             # --- 正常新增模式 ---
+#             all_evals.append(new_record)
+#             db.save_evaluations()
+#             st.success("✅ 新评估报告已保存！")
+#             st.rerun()
+#     except Exception as e:
+#         st.error(f"保存评估记录失败：{str(e)}")
+#         print(f"保存逻辑错误详情：{e}")
+        
+# def generate_pdf(evaluation):
+#     buffer = BytesIO()
+#     doc = SimpleDocTemplate(buffer, pagesize=A4)
+#     styles = getSampleStyleSheet()
+
+#     chinese_styles = {
+#         'Heading1': ParagraphStyle(
+#             'CustomHeading1', parent=styles['Heading1'], fontName=CHINESE_FONT,
+#             fontSize=18, spaceAfter=20, alignment=1
+#         ),
+#         'Heading2': ParagraphStyle(
+#             'CustomHeading2', parent=styles['Heading2'], fontName=CHINESE_FONT,
+#             fontSize=14, spaceAfter=12
+#         ),
+#         'Normal': ParagraphStyle(
+#             'CustomNormal', parent=styles['Normal'], fontName=CHINESE_FONT,
+#             fontSize=12, spaceAfter=6
+#         ),
+#         'TotalScore': ParagraphStyle(
+#             'CustomTotalScore', parent=styles['Normal'], fontName=CHINESE_FONT,
+#             fontSize=16, spaceAfter=12, textColor='red', bold=True
+#         ),
+#         'KeyProcess': ParagraphStyle(
+#             'CustomKeyProcess', parent=styles['Normal'], fontName=CHINESE_FONT,
+#             fontSize=12, spaceAfter=6, textColor='#FF8C00'
+#         )
+#     }
+
+#     elements = []
+#     elements.append(Paragraph("工厂流程审核报告", chinese_styles['Heading1']))
+#     factory_name = next(f['name'] for f in db.factories if f['id'] == evaluation['factory_id'])
+#     elements.extend([
+#         Paragraph(f"工厂名称：{factory_name}", chinese_styles['Normal']),
+#         Paragraph(f"评估日期：{evaluation['eval_date']}", chinese_styles['Normal']),
+#         Paragraph(f"评估人员：{evaluation['evaluator']}", chinese_styles['Normal']),
+#         Paragraph(f"审核性质：{evaluation.get('eval_type', '未记录')}", chinese_styles['Normal']), # 新增行
+#         Paragraph(f"工厂总分：{evaluation['overall_percent']:.2f}%", chinese_styles['TotalScore']),
+#         Spacer(1, 12)
+#     ])
+
+#     elements.append(Paragraph("一、存在问题汇总", chinese_styles['Heading2']))
+#     elements.append(Paragraph("经评估，请该工厂注意以下方面：", chinese_styles['Normal']))
+
+#     key_items = []
+#     other_items = []
+
+#     for mod_name in evaluation['selected_modules']:
+#             # --- 修改点：增加安全检查 ---
+#         if mod_name not in db.modules:
+#             # 如果历史记录中的模块名在当前配置里找不到了，跳过此模块或打印日志
+#             print(f"Warning: Module {mod_name} not found in current configuration.")
+#             continue
+#         mod = db.modules[mod_name]
+#         for sub_name, sub_mod in mod['sub_modules'].items():
+#             for item in sub_mod['items']:
+#                 res = evaluation['results'].get(item['id'], {})
+#                 if not res.get('is_checked', False):
+#                     item_text = f"【{mod_name}-{sub_name}】{item['name']}"
+#                     if res.get('details'):
+#                         item_text += f"（问题详情：{', '.join(res['details'])}）"
+#                     if item['comment']:
+#                         item_text += f" 改进建议：{item['comment']}"
+
+#                     if item.get('is_key', False):
+#                         key_items.append(item_text)
+#                     else:
+#                         other_items.append(item_text)
+
+#     if key_items:
+#         elements.append(Paragraph("（一）重点工序", chinese_styles['KeyProcess']))
+#         for i, text in enumerate(key_items, 1):
+#             elements.append(Paragraph(f"{i}. {text}", chinese_styles['KeyProcess']))
+#             elements.append(Spacer(1, 6))
+#     else:
+#         elements.append(Paragraph("（一）重点工序：本次评估未发现重点工序问题", chinese_styles['KeyProcess']))
+#         elements.append(Spacer(1, 6))
+
+#     if other_items:
+#         elements.append(Paragraph("（二）其他工序", chinese_styles['Normal']))
+#         for i, text in enumerate(other_items, 1):
+#             elements.append(Paragraph(f"{i}. {text}", chinese_styles['Normal']))
+#             elements.append(Spacer(1, 6))
+#     else:
+#         elements.append(Paragraph("（二）其他工序：本次评估未发现其他工序问题", chinese_styles['Normal']))
+#         elements.append(Spacer(1, 6))
+
+#     elements.append(Paragraph("二、评估者评论", chinese_styles['Heading2']))
+#     if evaluation['comments']:
+#         elements.append(Paragraph(evaluation['comments'], chinese_styles['Normal']))
+#     else:
+#         elements.append(Paragraph("无评论", chinese_styles['Normal']))
+
+#     doc.build(elements)
+#     buffer.seek(0)
+#     return buffer
+
+# def handle_edit_logic(record, index):
+#     """
+#     点击编辑按钮后调用的逻辑
+#     """
+#     # 将记录存入 session 状态，供评估表单读取
+#     st.session_state.editing_record = record
+#     st.session_state.editing_index = index
+#     st.session_state.is_edit_mode = True
+    
+#     # 强制切换回“开始评估”页面
+#     # 注意：这里的字符串要和你 sidebar.radio 里的“开始评估”选项完全一致
+#     st.session_state.menu_choice = "🏠 开始评估" 
+#     st.rerun()
+
+# def get_default_val(key, default=False):
+#     """
+#     安全获取回填值：如果是编辑模式，取历史值；否则取默认值
+#     """
+#     if st.session_state.get("is_edit_mode") and st.session_state.get("editing_record"):
+#         return st.session_state.editing_record.get("results", {}).get(key, default)
+#     return default
+
+# def inject_print_css():
+#     """
+#     注入打印优化样式
+#     """
+#     st.markdown("""
+#         <style>
+#         @media print {
+#             /* 隐藏侧边栏、顶部导航、按钮、工具栏 */
+#             [data-testid="stSidebar"], 
+#             header, 
+#             footer, 
+#             .stButton, 
+#             [data-testid="stToolbar"],
+#             .stTabs {
+#                 display: none !important;
+#             }
+#             /* 扩展正文宽度到整张纸 */
+#             .main .block-container {
+#                 max-width: 100% !important;
+#                 padding: 1cm !important;
+#             }
+#             /* 强制显示复选框的边框（部分浏览器默认不打印背景） */
+#             input[type="checkbox"] {
+#                 -webkit-print-color-adjust: exact;
+#             }
+#         }
+#         </style>
+#     """, unsafe_allow_html=True)
+
+# def save_evaluation_logic(new_record):
+#     """
+#     核心保存逻辑：区分『新增』与『覆盖』
+#     """
+#     # 获取当前所有评估记录
+#     all_evals = db.evaluations 
+    
+#     if st.session_state.get("is_edit_mode"):
+#         # --- 覆盖模式 ---
+#         edit_idx = st.session_state.get("editing_index")
+        
+#         # 安全检查：确保索引有效
+#         if edit_idx is not None and 0 <= edit_idx < len(all_evals):
+#             # 1. 替换旧记录
+#             all_evals[edit_idx] = new_record
+            
+#             # 2. 持久化到 JSON 或 服务器
+#             db.save_evaluations() 
+            
+#             st.success(f"✅ 报告已成功更新！(记录索引: {edit_idx})")
+            
+#             # 3. 退出编辑模式并重置状态
+#             st.session_state.is_edit_mode = False
+#             st.session_state.editing_record = None
+#             st.session_state.editing_index = None
+            
+#             # 4. 延迟刷新，让用户看清成功提示
+#             import time
+#             time.sleep(1)
+#             st.rerun()
+#         else:
+#             st.error("❌ 编辑失败：找不到原始记录索引。")
+#     else:
+#         # --- 正常新增模式 ---
+#         all_evals.append(new_record)
+#         db.save_evaluations()
+#         st.success("✅ 新评估报告已保存！")
+#         st.rerun()
 
 # ==================== 页面路由 ====================
 def main():
@@ -699,15 +980,14 @@ def main():
         show_data_analysis()
 
 # ==================== 核心评估页面（一键全选/清空 修复版） ====================
-# ==================== 核心评估页面（优化版：拍照/缩略图/大图） ====================
 def start_evaluation(current_user_id):
     inject_custom_css()
-    inject_print_css()  # <--- 【添加位置 1】
+    inject_print_css()
     st.subheader("欢迎回来，评估员")
     
-    # 【新增：编辑模式提醒】
+    # 编辑模式提醒
     if st.session_state.get("is_edit_mode"):
-        st.warning(f"🔄 正在编辑历史记录：{st.session_state.editing_record.get('eval_date')}")
+        st.warning(f"🔄 正在编辑历史记录：{st.session_state.editing_record.get('eval_date', '未知日期')}")
         if st.button("取消编辑"):
             st.session_state.is_edit_mode = False
             st.session_state.editing_record = None
@@ -716,37 +996,37 @@ def start_evaluation(current_user_id):
     # 定义系统固定总分分母
     SYSTEM_TOTAL_FIXED = 177
 
-   # --- 1. 基础配置 ---
+    # --- 1. 基础配置 ---
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         # 回填工厂 ID
-        default_fty = get_default_val("factory_id", db.factories[0]['id'])
+        default_fty = get_default_val("factory_id", db.factories[0]['id'] if db.factories else "")
         # 找到对应 ID 在列表中的索引
-        fty_options = [(f['id'], f['name']) for f in db.factories]
+        fty_options = [(f['id'], f['name']) for f in db.factories] if db.factories else []
         fty_index = next((i for i, f in enumerate(fty_options) if f[0] == default_fty), 0)
-        factory_id = st.selectbox("评估工厂", fty_options, index=fty_index, format_func=lambda x: x[1])[0]
+        factory_id = st.selectbox("评估工厂", fty_options, index=fty_index, format_func=lambda x: x[1], key="factory_sel")[0] if fty_options else ""
     with col2:
         # 回填日期
         default_date = get_default_val("eval_date", date.today())
         if isinstance(default_date, str): # 如果从 JSON 读取的是字符串则转换
              default_date = datetime.strptime(default_date, "%Y-%m-%d").date()
-        eval_date = st.date_input("评估日期", default_date)
+        eval_date = st.date_input("评估日期", default_date, key="date_sel")
     with col3:
-        evaluator = st.text_input("评估员", value=st.session_state.get('user', ''))
+        evaluator = st.text_input("评估员", value=st.session_state.get('user', ''), key="evaluator_sel")
     with col4:
-        eval_type = st.selectbox("审核性质", ["常规审核", "整改复查"])
+        eval_type = st.selectbox("审核性质", ["常规审核", "整改复查"], key="eval_type_sel")
 
-    # 【新增功能：整改复查对比逻辑】
+    # 整改复查对比逻辑
     last_ev = None
-    if eval_type == "整改复查":
-        past_evals = [e for e in db.evaluations if e['factory_id'] == factory_id]
+    if eval_type == "整改复查" and factory_id:
+        past_evals = [e for e in db.evaluations if e.get('factory_id') == factory_id] if hasattr(db, 'evaluations') else []
         if past_evals:
-            last_ev = sorted(past_evals, key=lambda x: x['eval_date'], reverse=True)[0]
+            last_ev = sorted(past_evals, key=lambda x: x.get('eval_date', ''), reverse=True)[0]
         else:
             st.info("该工厂暂无历史评估记录，将以常规模式进行。")
 
-    all_modules = list(db.modules.keys())
-    selected_modules = all_modules if eval_type == "常规审核" else st.multiselect("选择复查模块", all_modules)
+    all_modules = list(db.modules.keys()) if hasattr(db, 'modules') else []
+    selected_modules = all_modules if eval_type == "常规审核" else st.multiselect("选择复查模块", all_modules, key="modules_sel")
     
     if not selected_modules:
         st.info("请选择上方模块开始评分")
@@ -759,18 +1039,18 @@ def start_evaluation(current_user_id):
     # 修复点：定义 all_item_ids 用于全选功能
     all_item_ids = []
     for mod_name in selected_modules:
-        for sub_mod in db.modules[mod_name]['sub_modules'].values():
-            for it in sub_mod['items']:
+        mod_data = db.modules.get(mod_name, {})
+        for sub_mod in mod_data.get('sub_modules', {}).values():
+            for it in sub_mod.get('items', []):
                 it_id = it['id']
                 all_item_ids.append(it_id) # 收集所有 ID
                 if it_id not in st.session_state.eval_results:
                     st.session_state.eval_results[it_id] = {"is_checked": False, "details": [], "image_path": None}
 
-   # --- 3. 核心评分循环（及右上角操作按钮） ---
+    # --- 3. 核心评分循环（及右上角操作按钮） ---
     st.divider()
 
     # 使用容器布局，将按钮精准定位在分割线下方、列表右上角
-    # col_space 占比 8.5，确保按钮被推到最右
     col_space, col_btns = st.columns([8.5, 1.5])
     
     with col_btns:
@@ -806,67 +1086,64 @@ def start_evaluation(current_user_id):
                 st.rerun()
 
     total_system_earned = 0
-    # ... 后面接原来的 for mod_name in selected_modules: ...
-
+    # 核心评分循环
     for mod_name in selected_modules:
-        mod_data = db.modules[mod_name]
+        mod_data = db.modules.get(mod_name, {})
         
         # 计算该模块实时总分
         mod_earned = 0
-        for sub in mod_data['sub_modules'].values():
-            mod_earned += sum(it['score'] for it in sub['items'] if st.session_state.get(f"chk_{it['id']}", False))
+        for sub in mod_data.get('sub_modules', {}).values():
+            mod_earned += sum(it.get('score', 0) for it in sub.get('items', []) if st.session_state.get(f"chk_{it['id']}", False))
         
         # 换算百分比 (基于177)
-        mod_score_percent = (mod_earned / SYSTEM_TOTAL_FIXED * 100)
+        mod_score_percent = (mod_earned / SYSTEM_TOTAL_FIXED * 100) if SYSTEM_TOTAL_FIXED != 0 else 0
         total_system_earned += mod_earned
 
-        # 【计算上一次模块得分】
+        # 计算上一次模块得分
         last_mod_info = ""
         if last_ev:
             last_mod_earned = 0
-            for s_name, s_data in mod_data['sub_modules'].items():
-                last_mod_earned += sum(it['score'] for it in s_data['items'] if last_ev['results'].get(it['id'], {}).get('is_checked', False))
-            last_mod_percent = (last_mod_earned / SYSTEM_TOTAL_FIXED * 100)
+            for s_name, s_data in mod_data.get('sub_modules', {}).items():
+                last_mod_earned += sum(it.get('score', 0) for it in s_data.get('items', []) if last_ev.get('results', {}).get(it['id'], {}).get('is_checked', False))
+            last_mod_percent = (last_mod_earned / SYSTEM_TOTAL_FIXED * 100) if SYSTEM_TOTAL_FIXED != 0 else 0
             last_mod_info = f" (上次: {last_mod_percent:.1f}%)"
 
         with st.expander(f"📦{mod_name}", expanded=True):
             st.write(f"**模块得分: :blue[{mod_score_percent:.1f}%]** {last_mod_info}")
             
-            for sub_name, sub_mod in mod_data['sub_modules'].items():
-                sub_earned = sum(it['score'] for it in sub_mod['items'] if st.session_state.get(f"chk_{it['id']}", False))
-                sub_score_percent = (sub_earned / SYSTEM_TOTAL_FIXED * 100)
+            for sub_name, sub_mod in mod_data.get('sub_modules', {}).items():
+                sub_earned = sum(it.get('score', 0) for it in sub_mod.get('items', []) if st.session_state.get(f"chk_{it['id']}", False))
+                sub_score_percent = (sub_earned / SYSTEM_TOTAL_FIXED * 100) if SYSTEM_TOTAL_FIXED != 0 else 0
 
-                # 【计算上一次子项得分】
+                # 计算上一次子项得分
                 last_sub_info = ""
                 if last_ev:
-                    last_sub_earned = sum(it['score'] for it in sub_mod['items'] if last_ev['results'].get(it['id'], {}).get('is_checked', False))
-                    last_sub_percent = (last_sub_earned / SYSTEM_TOTAL_FIXED * 100)
+                    last_sub_earned = sum(it.get('score', 0) for it in sub_mod.get('items', []) if last_ev.get('results', {}).get(it['id'], {}).get('is_checked', False))
+                    last_sub_percent = (last_sub_earned / SYSTEM_TOTAL_FIXED * 100) if SYSTEM_TOTAL_FIXED != 0 else 0
                     last_sub_info = f" (上次: {last_sub_percent:.1f}%)"
 
                 sub_key = f"exp_{factory_id}_{mod_name}_{sub_name}"
-                with st.expander(f"🔹 {sub_name}", expanded=auto_expand, key=sub_key):
+                with st.expander(f"🔹 {sub_name}", expanded=True, key=sub_key):
                     st.write(f"**子项得分: :green[{sub_score_percent:.1f}%]** {last_sub_info}")
                     st.write("") 
 
-                    for it in sub_mod['items']:
+                    for it in sub_mod.get('items', []):
                         it_id = it['id']
                         c1, c2, c3 = st.columns([0.65, 0.2, 0.15])
                         
-                        # 【计算上一次该项是否合格】
+                        # 计算上一次该项是否合格
                         last_item_status = ""
                         if last_ev:
-                            was_ok = last_ev['results'].get(it_id, {}).get('is_checked', False)
+                            was_ok = last_ev.get('results', {}).get(it_id, {}).get('is_checked', False)
                             last_item_status = " | :green[上次合格]" if was_ok else " | :red[上次不合格]"
 
-                       # ... 在循环内部 ...
                         with c1:
                             label = f":orange[{it['name']} (关键项)]" if it.get('is_key') else it['name']
                             full_label = f"{label}{last_item_status}"
                             
-                            # --- 【修改位置 2：回填复选框】 ---
-                            # 关键：从历史记录的 results 字典里按 ID 找之前的 is_checked
+                            # 回填复选框
                             history_results = st.session_state.get("editing_record", {}).get("results", {})
-                            history_item_checked = history_results.get(it_id, {}).get("is_checked", False)
+                            history_item_checked = history_results.get(it_id, {}).get('is_checked', False)
                             
                             # 使用 get_default_val 的逻辑决定初始状态
                             is_checked = st.checkbox(
@@ -902,34 +1179,36 @@ def start_evaluation(current_user_id):
                                         st.rerun()
 
                         if not is_checked:
-                            if it['details']:
+                            if it.get('details'):
                                 st.session_state.eval_results[it_id]['details'] = st.multiselect(
                                     "缺陷选择", it['details'],
                                     default=st.session_state.eval_results[it_id]['details'],
                                     key=f"det_{it_id}", label_visibility="collapsed"
                                 )
-                            if it['comment']:
+                            if it.get('comment'):
                                 st.caption(f"💡 建议：{it['comment']}")
                         st.divider()
 
     # --- 5. 总结区 ---
     st.subheader("评估汇总")
-    overall_percent = (total_system_earned / SYSTEM_TOTAL_FIXED * 100)
+    overall_percent = (total_system_earned / SYSTEM_TOTAL_FIXED * 100) if SYSTEM_TOTAL_FIXED != 0 else 0
     
     if last_ev:
-        st.metric("总得分率", f"{overall_percent:.2f}%", delta=f"{overall_percent - last_ev['overall_percent']:.2f}%")
+        last_overall = last_ev.get('overall_percent', 0)
+        st.metric("总得分率", f"{overall_percent:.2f}%", delta=f"{overall_percent - last_overall:.2f}%")
     else:
         st.metric("总得分率", f"{overall_percent:.2f}%")
         
-    comments = st.text_area("综合评估意见", height=80)
+    comments = st.text_area("综合评估意见", height=80, key="comments_sel")
 
-    # --- 【修改位置 3：保存逻辑】 ---
+    # --- 保存逻辑（核心修复区） ---
     if st.button("保存并生成报告", type="primary"):
+        # 组装评估数据
         ev_data = {
             "factory_id": factory_id,
             "evaluator": evaluator,
-            "eval_date": eval_date.strftime("%Y-%m-%d"),
-            "evaluator_id": st.session_state.user_id,
+            "eval_date": eval_date.strftime("%Y-%m-%d"),  # 确保是字符串
+            "evaluator_id": current_user_id,  # 用传入的current_user_id，而非session_state
             "eval_type": eval_type,
             "selected_modules": selected_modules,
             "overall_percent": overall_percent,
@@ -937,16 +1216,278 @@ def start_evaluation(current_user_id):
             "comments": comments
         }
         
-        # 调用覆盖逻辑函数
+        # 调用保存逻辑
         save_evaluation_logic(ev_data)
         
-        pdf_buf = generate_pdf(saved_record) 
-        st.download_button(
-            label="📥 下载评估报告 (PDF)",
-            data=pdf_buf,
-            file_name=f"工厂评估报告_{saved_record['id']}_{eval_date}.pdf",
-            mime="application/pdf"
-        )
+        # ========== 核心修复：用ev_data替代未定义的saved_record ==========
+        try:
+            # 生成PDF（使用组装好的ev_data）
+            pdf_buf = generate_pdf(ev_data) 
+            if pdf_buf:
+                # 修复文件名：用factory_id替代不存在的id，日期转字符串
+                file_name = f"工厂评估报告_{factory_id}_{eval_date.strftime('%Y-%m-%d')}.pdf"
+                st.download_button(
+                    label="📥 下载评估报告 (PDF)",
+                    data=pdf_buf,
+                    file_name=file_name,
+                    mime="application/pdf",
+                    key="pdf_download"
+                )
+            else:
+                st.warning("PDF生成失败，无法下载")
+        except Exception as e:
+            st.error(f"生成PDF失败：{str(e)}")
+        
+        # 重置评估结果状态（可选，避免下次评估带旧数据）
+        st.session_state.eval_results = {}
+# ==================== 核心评估页面（优化版：拍照/缩略图/大图） ====================
+# def start_evaluation(current_user_id):
+#     inject_custom_css()
+#     inject_print_css()  # <--- 【添加位置 1】
+#     st.subheader("欢迎回来，评估员")
+    
+#     # 【新增：编辑模式提醒】
+#     if st.session_state.get("is_edit_mode"):
+#         st.warning(f"🔄 正在编辑历史记录：{st.session_state.editing_record.get('eval_date')}")
+#         if st.button("取消编辑"):
+#             st.session_state.is_edit_mode = False
+#             st.session_state.editing_record = None
+#             st.rerun()
+
+#     # 定义系统固定总分分母
+#     SYSTEM_TOTAL_FIXED = 177
+
+#    # --- 1. 基础配置 ---
+#     col1, col2, col3, col4 = st.columns(4)
+#     with col1:
+#         # 回填工厂 ID
+#         default_fty = get_default_val("factory_id", db.factories[0]['id'])
+#         # 找到对应 ID 在列表中的索引
+#         fty_options = [(f['id'], f['name']) for f in db.factories]
+#         fty_index = next((i for i, f in enumerate(fty_options) if f[0] == default_fty), 0)
+#         factory_id = st.selectbox("评估工厂", fty_options, index=fty_index, format_func=lambda x: x[1])[0]
+#     with col2:
+#         # 回填日期
+#         default_date = get_default_val("eval_date", date.today())
+#         if isinstance(default_date, str): # 如果从 JSON 读取的是字符串则转换
+#              default_date = datetime.strptime(default_date, "%Y-%m-%d").date()
+#         eval_date = st.date_input("评估日期", default_date)
+#     with col3:
+#         evaluator = st.text_input("评估员", value=st.session_state.get('user', ''))
+#     with col4:
+#         eval_type = st.selectbox("审核性质", ["常规审核", "整改复查"])
+
+#     # 【新增功能：整改复查对比逻辑】
+#     last_ev = None
+#     if eval_type == "整改复查":
+#         past_evals = [e for e in db.evaluations if e['factory_id'] == factory_id]
+#         if past_evals:
+#             last_ev = sorted(past_evals, key=lambda x: x['eval_date'], reverse=True)[0]
+#         else:
+#             st.info("该工厂暂无历史评估记录，将以常规模式进行。")
+
+#     all_modules = list(db.modules.keys())
+#     selected_modules = all_modules if eval_type == "常规审核" else st.multiselect("选择复查模块", all_modules)
+    
+#     if not selected_modules:
+#         st.info("请选择上方模块开始评分")
+#         return
+
+#     # --- 2. 状态初始化 & 提取所有 ID ---
+#     if 'eval_results' not in st.session_state:
+#         st.session_state.eval_results = {}
+    
+#     # 修复点：定义 all_item_ids 用于全选功能
+#     all_item_ids = []
+#     for mod_name in selected_modules:
+#         for sub_mod in db.modules[mod_name]['sub_modules'].values():
+#             for it in sub_mod['items']:
+#                 it_id = it['id']
+#                 all_item_ids.append(it_id) # 收集所有 ID
+#                 if it_id not in st.session_state.eval_results:
+#                     st.session_state.eval_results[it_id] = {"is_checked": False, "details": [], "image_path": None}
+
+#    # --- 3. 核心评分循环（及右上角操作按钮） ---
+#     st.divider()
+
+#     # 使用容器布局，将按钮精准定位在分割线下方、列表右上角
+#     # col_space 占比 8.5，确保按钮被推到最右
+#     col_space, col_btns = st.columns([8.5, 1.5])
+    
+#     with col_btns:
+#         # 增加一小段负边距 CSS，让按钮稍微上移，贴近分割线
+#         st.markdown("""
+#             <style>
+#             .st-key-small_btns_container {
+#                 margin-top: -45px; 
+#             }
+#             div[data-testid="stColumn"] button {
+#                 padding: 1px 2px !important;
+#                 font-size: 11px !important;
+#                 height: 22px !important;
+#                 min-height: 22px !important;
+#                 line-height: 1 !important;
+#                 background-color: #f0f2f6;
+#             }
+#             </style>
+#         """, unsafe_allow_html=True)
+        
+#         # 使用容器包裹按钮以便精确定位
+#         with st.container():
+#             sub_c1, sub_c2 = st.columns(2)
+#             if sub_c1.button("全选", key="small_all"):
+#                 for it_id in all_item_ids:
+#                     st.session_state[f"chk_{it_id}"] = True
+#                     st.session_state.eval_results[it_id]["is_checked"] = True
+#                 st.rerun()
+#             if sub_c2.button("清空", key="small_none"):
+#                 for it_id in all_item_ids:
+#                     st.session_state[f"chk_{it_id}"] = False
+#                     st.session_state.eval_results[it_id]["is_checked"] = False
+#                 st.rerun()
+
+#     total_system_earned = 0
+#     # ... 后面接原来的 for mod_name in selected_modules: ...
+
+#     for mod_name in selected_modules:
+#         mod_data = db.modules[mod_name]
+        
+#         # 计算该模块实时总分
+#         mod_earned = 0
+#         for sub in mod_data['sub_modules'].values():
+#             mod_earned += sum(it['score'] for it in sub['items'] if st.session_state.get(f"chk_{it['id']}", False))
+        
+#         # 换算百分比 (基于177)
+#         mod_score_percent = (mod_earned / SYSTEM_TOTAL_FIXED * 100)
+#         total_system_earned += mod_earned
+
+#         # 【计算上一次模块得分】
+#         last_mod_info = ""
+#         if last_ev:
+#             last_mod_earned = 0
+#             for s_name, s_data in mod_data['sub_modules'].items():
+#                 last_mod_earned += sum(it['score'] for it in s_data['items'] if last_ev['results'].get(it['id'], {}).get('is_checked', False))
+#             last_mod_percent = (last_mod_earned / SYSTEM_TOTAL_FIXED * 100)
+#             last_mod_info = f" (上次: {last_mod_percent:.1f}%)"
+
+#         with st.expander(f"📦{mod_name}", expanded=True):
+#             st.write(f"**模块得分: :blue[{mod_score_percent:.1f}%]** {last_mod_info}")
+            
+#             for sub_name, sub_mod in mod_data['sub_modules'].items():
+#                 sub_earned = sum(it['score'] for it in sub_mod['items'] if st.session_state.get(f"chk_{it['id']}", False))
+#                 sub_score_percent = (sub_earned / SYSTEM_TOTAL_FIXED * 100)
+
+#                 # 【计算上一次子项得分】
+#                 last_sub_info = ""
+#                 if last_ev:
+#                     last_sub_earned = sum(it['score'] for it in sub_mod['items'] if last_ev['results'].get(it['id'], {}).get('is_checked', False))
+#                     last_sub_percent = (last_sub_earned / SYSTEM_TOTAL_FIXED * 100)
+#                     last_sub_info = f" (上次: {last_sub_percent:.1f}%)"
+
+#                 sub_key = f"exp_{factory_id}_{mod_name}_{sub_name}"
+#                 with st.expander(f"🔹 {sub_name}", expanded=True, key=sub_key):
+#                     st.write(f"**子项得分: :green[{sub_score_percent:.1f}%]** {last_sub_info}")
+#                     st.write("") 
+
+#                     for it in sub_mod['items']:
+#                         it_id = it['id']
+#                         c1, c2, c3 = st.columns([0.65, 0.2, 0.15])
+                        
+#                         # 【计算上一次该项是否合格】
+#                         last_item_status = ""
+#                         if last_ev:
+#                             was_ok = last_ev['results'].get(it_id, {}).get('is_checked', False)
+#                             last_item_status = " | :green[上次合格]" if was_ok else " | :red[上次不合格]"
+
+#                        # ... 在循环内部 ...
+#                         with c1:
+#                             label = f":orange[{it['name']} (关键项)]" if it.get('is_key') else it['name']
+#                             full_label = f"{label}{last_item_status}"
+                            
+#                             # --- 【修改位置 2：回填复选框】 ---
+#                             # 关键：从历史记录的 results 字典里按 ID 找之前的 is_checked
+#                             history_results = st.session_state.get("editing_record", {}).get("results", {})
+#                             history_item_checked = history_results.get(it_id, {}).get("is_checked", False)
+                            
+#                             # 使用 get_default_val 的逻辑决定初始状态
+#                             is_checked = st.checkbox(
+#                                 full_label, 
+#                                 key=f"chk_{it_id}", 
+#                                 value=history_item_checked if st.session_state.get("is_edit_mode") else st.session_state.get(f"chk_{it_id}", False)
+#                             )
+#                             st.session_state.eval_results[it_id]['is_checked'] = is_checked
+                            
+#                         with c2:
+#                             with st.popover("📸 拍照上传"):
+#                                 img_file = st.file_uploader("拍照", type=['jpg','png','jpeg'], key=f"up_{it_id}", label_visibility="collapsed")
+#                                 if img_file:
+#                                     file_ext = img_file.name.split('.')[-1]
+#                                     file_name = f"{it_id}_{datetime.now().strftime('%H%M%S')}.{file_ext}"
+#                                     save_path = os.path.join(MEDIA_DIR, file_name)
+#                                     with open(save_path, "wb") as f:
+#                                         f.write(img_file.getbuffer())
+#                                     st.session_state.eval_results[it_id]['image_path'] = save_path
+#                                     st.rerun()
+
+#                         with c3:
+#                             img_path = st.session_state.eval_results[it_id].get('image_path')
+#                             if img_path and os.path.exists(img_path):
+#                                 st.image(img_path, width=40)
+#                                 sc1, sc2 = st.columns(2)
+#                                 with sc1:
+#                                     if st.button("👁️", key=f"v_{it_id}"): show_full_image(img_path)
+#                                 with sc2:
+#                                     if st.button("🗑️", key=f"d_{it_id}"):
+#                                         if os.path.exists(img_path): os.remove(img_path)
+#                                         st.session_state.eval_results[it_id]['image_path'] = None
+#                                         st.rerun()
+
+#                         if not is_checked:
+#                             if it['details']:
+#                                 st.session_state.eval_results[it_id]['details'] = st.multiselect(
+#                                     "缺陷选择", it['details'],
+#                                     default=st.session_state.eval_results[it_id]['details'],
+#                                     key=f"det_{it_id}", label_visibility="collapsed"
+#                                 )
+#                             if it['comment']:
+#                                 st.caption(f"💡 建议：{it['comment']}")
+#                         st.divider()
+
+#     # --- 5. 总结区 ---
+#     st.subheader("评估汇总")
+#     overall_percent = (total_system_earned / SYSTEM_TOTAL_FIXED * 100)
+    
+#     if last_ev:
+#         st.metric("总得分率", f"{overall_percent:.2f}%", delta=f"{overall_percent - last_ev['overall_percent']:.2f}%")
+#     else:
+#         st.metric("总得分率", f"{overall_percent:.2f}%")
+        
+#     comments = st.text_area("综合评估意见", height=80)
+
+#     # --- 【修改位置 3：保存逻辑】 ---
+#     if st.button("保存并生成报告", type="primary"):
+#         ev_data = {
+#             "factory_id": factory_id,
+#             "evaluator": evaluator,
+#             "eval_date": eval_date.strftime("%Y-%m-%d"),
+#             "evaluator_id": st.session_state.user_id,
+#             "eval_type": eval_type,
+#             "selected_modules": selected_modules,
+#             "overall_percent": overall_percent,
+#             "results": st.session_state.eval_results,
+#             "comments": comments
+#         }
+        
+#         # 调用覆盖逻辑函数
+#         save_evaluation_logic(ev_data)
+        
+#         pdf_buf = generate_pdf(saved_record) 
+#         st.download_button(
+#             label="📥 下载评估报告 (PDF)",
+#             data=pdf_buf,
+#             file_name=f"工厂评估报告_{saved_record['id']}_{eval_date}.pdf",
+#             mime="application/pdf"
+#         )
 
 # ==================== 数据分析看板 ====================
 def show_data_analysis(evals_to_show):
@@ -1117,6 +1658,59 @@ def show_admin_panel():
     #             st.rerun()
 
 # ==================== 历史记录 ====================
+# def show_history(filtered_evals):
+#     """展示历史评估记录 + 编辑功能（适配你的filtered_evals参数）"""
+#     st.subheader("📜 历史评估记录")
+    
+#     if not filtered_evals:
+#         st.info("暂无历史评估记录")
+#         return
+    
+#     # 按评估日期倒序排列
+#     evaluations_sorted = sorted(
+#         filtered_evals,
+#         key=lambda x: x.get('eval_date', ''),
+#         reverse=True
+#     )
+    
+#     # 遍历展示每条记录 + 编辑按钮
+#     for idx, record in enumerate(evaluations_sorted):
+#         # 构建记录展示卡片
+#         factory_name = "未知工厂"
+#         # 匹配工厂名称
+#         for f in db.factories:
+#             if f['id'] == record.get('factory_id'):
+#                 factory_name = f['name']
+#                 break
+        
+#         with st.expander(f"📅 {record.get('eval_date', '未知日期')} | 🏭 {factory_name} | 📊 {record.get('overall_percent', 0):.2f}%", expanded=False):
+#             col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
+#             with col1:
+#                 st.write(f"**评估员**: {record.get('evaluator', '未知')}")
+#             with col2:
+#                 st.write(f"**审核类型**: {record.get('eval_type', '常规审核')}")
+#             with col3:
+#                 st.write(f"**总分率**: {record.get('overall_percent', 0):.2f}%")
+#             with col4:
+#                 st.write(f"**记录ID**: #{record.get('id', idx+1)}")
+            
+#             # 编辑按钮核心逻辑（点击后设置状态并触发重渲染）
+#             if st.button(
+#                 "✏️ 编辑",
+#                 key=f"edit_btn_{record.get('id', idx)}",  # 唯一key，避免按钮冲突
+#                 type="secondary"
+#             ):
+#                 # 1. 设置编辑模式核心状态
+#                 st.session_state.is_edit_mode = True
+#                 st.session_state.editing_record = record  # 保存要编辑的完整记录
+#                 st.session_state.editing_index = idx      # 保存记录索引（用于后续更新）
+#                 # 2. 初始化评估结果状态（确保复选框回填）
+#                 if 'results' in record:
+#                     st.session_state.eval_results = record['results']
+#                 else:
+#                     st.session_state.eval_results = {}
+#                 # 3. 强制页面重渲染（关键：没有这个按钮点击无反应）
+#                 st.rerun()
 def show_history(evals_to_show):
     st.subheader("历史记录")
     if not evals_to_show:
@@ -1151,6 +1745,88 @@ def show_history(evals_to_show):
                     st.rerun()
             
             st.write(f"评论：{ev['comments']}")
+
+# def main():
+#     # ========== 新增：初始化编辑模式相关状态（防止KeyError） ==========
+#     # 必须在login()前初始化，避免首次点击编辑按钮报错
+#     if "is_edit_mode" not in st.session_state:
+#         st.session_state.is_edit_mode = False
+#     if "editing_record" not in st.session_state:
+#         st.session_state.editing_record = None
+#     if "editing_index" not in st.session_state:
+#         st.session_state.editing_index = None
+#     if "eval_results" not in st.session_state:
+#         st.session_state.eval_results = {}
+#     if "last_menu_choice" not in st.session_state:
+#         st.session_state.last_menu_choice = "🏠 开始评估"
+    
+#     # 1. 登录拦截
+#     login() 
+    
+#     # 2. 侧边栏用户信息
+#     st.sidebar.title(f"👤 {st.session_state.user_name}")
+#     st.sidebar.caption(f"权限: {st.session_state.role.upper()}")
+#     st.sidebar.divider()
+    
+#     # 3. 菜单定义
+#     menu_options = ["🏠 开始评估", "📊 数据分析", "📜 历史记录"]
+#     if st.session_state.role == "sadmin":
+#         menu_options.append("⚙️ 系统管理")
+    
+#     # --- 【修复点1】动态确定当前页面索引 ---
+#     # 如果处于编辑模式，强制 index 指向“🏠 开始评估” (即 0)
+#     if st.session_state.get("is_edit_mode"):
+#         default_index = 0
+#     else:
+#         # 否则尝试恢复之前的选择，如果没有则默认为 0
+#         current_choice = st.session_state.get("last_menu_choice", "🏠 开始评估")
+#         try:
+#             default_index = menu_options.index(current_choice)
+#         except ValueError:
+#             default_index = 0
+
+#     # 4. 侧边栏菜单渲染
+#     choice = st.sidebar.radio(
+#         "功能导航", 
+#         options=menu_options,
+#         index=default_index,
+#         key="nav_radio"
+#     )
+    
+#     # 记录当前选择，用于下次刷新时保持页面
+#     st.session_state.last_menu_choice = choice
+
+#     st.sidebar.divider()
+
+#     # 5. 获取数据
+#     filtered_evals = db.get_evaluations_by_user(st.session_state.user_id, st.session_state.role)
+
+#     # 6. 路由分发
+#     if "开始评估" in choice:
+#         # 传递用户ID，start_evaluation 内部需处理 st.session_state.editing_record
+#         start_evaluation(st.session_state.user_id) 
+        
+#     elif "数据分析" in choice:
+#         st.session_state.is_edit_mode = False # 切换页面自动退出编辑态
+#         show_data_analysis(filtered_evals)
+        
+#     elif "历史记录" in choice:
+#         st.session_state.is_edit_mode = False
+#         # ========== 核心：调用历史记录模块（已定义的show_history函数） ==========
+#         show_history(filtered_evals)
+        
+#     elif "系统管理" in choice:
+#         st.session_state.is_edit_mode = False
+#         show_admin_panel() 
+
+#     # 7. 退出登录
+#     if st.sidebar.button("🚪 退出登录", use_container_width=True):
+#         st.session_state.clear()
+#         st.rerun()
+
+# # 在程序最后运行 main
+# if __name__ == "__main__":
+#     main()
 
 def main():
     # 1. 登录拦截
