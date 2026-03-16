@@ -15,7 +15,7 @@ from reportlab.lib.colors import red, HexColor  # 必须添加这行
 
 # ==================== 页面配置 ====================
 st.set_page_config(
-    page_title="欧图工厂生产流程审核系统",
+    page_title="欧图工厂生产流程审核系统-备份",
     page_icon="🏭",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -950,7 +950,7 @@ def save_evaluation_logic(ev_data):
 # ==================== 页面路由 ====================
 def main():
     if 'user' not in st.session_state:
-        st.title("欧图工厂生产流程审核系统")
+        st.title("欧图工厂生产流程审核系统-备份")
         col1, col2, col3 = st.columns([1,2,1])
         with col2:
             username = st.text_input("用户名")
