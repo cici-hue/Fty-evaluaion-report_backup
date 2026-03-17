@@ -4,3 +4,5 @@ matplotlib>=3.7.0
 openpyxl>=3.1.0
 reportlab>=4.0.0
 plotly
+sqlalchemy==2.0.25
+python-dotenv==1.0.0
