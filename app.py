@@ -12,6 +12,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.colors import red, HexColor  # 必须添加这行
+from sqlalchemy import create_engine, Column, String, Text, DateTime, Integer
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+from dotenv import load_dotenv
 
 # ==================== 页面配置 ====================
 st.set_page_config(
@@ -48,12 +52,48 @@ def setup_chinese_font():
 CHINESE_FONT = setup_chinese_font()
 
 # ==================== 数据初始化 ====================
-DATA_DIR = "data"
-MEDIA_DIR = os.path.join(DATA_DIR, "media") # 新增：图片存储目录
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
-if not os.path.exists(MEDIA_DIR):
-    os.makedirs(MEDIA_DIR)
+# ===== 改造后的数据存储路径（仅修改MEDIA_DIR为持久化路径）=====
+load_dotenv()  # 新增：加载环境变量
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+# 核心改造：媒体文件存储到持久化目录（避免Streamlit临时目录）
+MEDIA_DIR = os.getenv("MEDIA_DIR", os.path.join(BASE_DIR, "persistent_media"))
+
+# 确保持久化目录存在（原有代码保留，仅新增MEDIA_DIR的mkdir）
+os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(MEDIA_DIR, exist_ok=True)
+# ===========================================================
+
+# ===== 新增数据库配置（仅这部分）=====
+# 配置SQLite数据库（持久化文件，重启不丢失）
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./factory_audit.db")
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# 定义评估记录表模型
+class AuditRecord(Base):
+    __tablename__ = "audit_records"
+    id = Column(String, primary_key=True)
+    factory_name = Column(String, nullable=False)
+    auditor = Column(String, nullable=False)
+    audit_date = Column(DateTime, default=datetime.now)
+    items = Column(Text)
+    score = Column(Integer)
+    media_files = Column(Text)
+    pdf_path = Column(String)
+
+# 创建数据库表（首次运行自动创建）
+Base.metadata.create_all(bind=engine)
+
+# 获取数据库会话
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+# ====================================
 
 # ==================== 评分体系数据模型 ====================
 class DataStore:
@@ -446,25 +486,63 @@ class DataStore:
                 }
             }
         }
-    def _load_evaluations(self):
-        """加载所有评估记录（私有方法）"""
-        f = os.path.join(DATA_DIR, "evaluations.json")
-        try:
-            return json.load(open(f, 'r', encoding='utf-8')) if os.path.exists(f) else []
-        except Exception as e:
-            st.error(f"加载评估记录失败：{e}")
-            return []
+    def _load_evaluations():
+        db = next(get_db())
+        records = db.query(AuditRecord).all()
+        # 转换为原JSON格式，保证业务逻辑无感知
+        result = []
+        for record in records:
+            result.append({
+                "id": record.id,
+                "factory_name": record.factory_name,
+                "auditor": record.auditor,
+                "audit_date": record.audit_date.strftime("%Y-%m-%d %H:%M:%S"),
+                "items": json.loads(record.items) if record.items else [],
+                "score": record.score,
+                "media_files": record.media_files.split(",") if record.media_files else [],
+                "pdf_path": record.pdf_path or ""
+            })
+        return result
+    # ===========================================
 
-    def _save_evaluations(self):
-        """保存整个评估列表到文件（私有方法，无参数）"""
-        f = os.path.join(DATA_DIR, "evaluations.json")
-        try:
-            with open(f, 'w', encoding='utf-8') as file:
-                json.dump(self.evaluations, file, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            st.error(f"保存评估记录失败：{e}")
-            return False
+    def _save_evaluations(record):
+        db = next(get_db())
+        # 转换数据格式
+        db_record = AuditRecord(
+            id=record["id"],
+            factory_name=record["factory_name"],
+            auditor=record["auditor"],
+            audit_date=datetime.strptime(record["audit_date"], "%Y-%m-%d %H:%M:%S"),
+            items=json.dumps(record["items"], ensure_ascii=False),
+            score=record["score"],
+            media_files=",".join(record["media_files"]) if record.get("media_files") else "",
+            pdf_path=record.get("pdf_path", "")
+        )
+        # 新增：存在则更新，不存在则新增
+        existing_record = db.query(AuditRecord).filter(AuditRecord.id == record["id"]).first()
+        if existing_record:
+            existing_record.factory_name = record["factory_name"]
+            existing_record.auditor = record["auditor"]
+            existing_record.audit_date = datetime.strptime(record["audit_date"], "%Y-%m-%d %H:%M:%S")
+            existing_record.items = json.dumps(record["items"], ensure_ascii=False)
+            existing_record.score = record["score"]
+            existing_record.media_files = ",".join(record["media_files"]) if record.get("media_files") else ""
+            existing_record.pdf_path = record.get("pdf_path", "")
+        else:
+            db.add(db_record)
+        db.commit()
+    # ===========================================
+
+    # ===== 改造后的图片保存函数（仅修改存储路径）=====
+    def save_uploaded_image(uploaded_file):
+        # 原有逻辑保留，仅修改存储路径为MEDIA_DIR（持久化目录）
+        file_ext = os.path.splitext(uploaded_file.name)[1]
+        file_name = f"{uuid.uuid4()}{file_ext}"
+        file_path = os.path.join(MEDIA_DIR, file_name)  # 仅改这一行
+        with open(file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        return file_path
+    # ==============================================
 
     def save_single_evaluation(self, ev, index=None):
         """
